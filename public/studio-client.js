@@ -1,4 +1,4 @@
-import {consumeSSE} from './sse.js';
+import {consumeSSE,renderStatusLabel} from './sse.js';
 import {extractLastFrame} from './last-frame.js';
 import {suggestedPrompts,appendSuggestion} from './prompt-suggestions.js';
 
@@ -53,8 +53,8 @@ function renderPicks(){
 function updateSuggestions(){const prompt=$('positivePrompt').value;$('promptCount').textContent=prompt.length+' / 3000';const choices=prompt?suggestedPrompts(prompt,'video'):['Slow camera push','Gentle natural movement','Pan across the scene'];$('suggestions').replaceChildren(...choices.map(text=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.disabled=state.busy||appendSuggestion(prompt,text).length>3000;button.onclick=()=>{$('positivePrompt').value=appendSuggestion($('positivePrompt').value,text);updateSuggestions();};return button;}));}
 function setImage(file,extension=null){if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>12*1024**2)throw new Error('Use PNG, JPG, or WebP under 12 MB.');if(state.imageUrl)URL.revokeObjectURL(state.imageUrl);state.file=file;state.extension=extension;state.imageUrl=URL.createObjectURL(file);$('imagePreview').src=state.imageUrl;$('imagePreview').hidden=false;$('uploadCopy').hidden=true;$('removeImage').hidden=false;$('extensionNote').hidden=!extension;$('extensionNote').textContent=extension?'Starting from the previous video’s last frame. Describe the next scene.':'';}
 async function checkConnection(){try{state.capabilities=await api('/api/video/connection');$('connectionBadge').classList.add('connected');$('connectionBadge').lastChild.textContent=' GPU responding';notice('Proxy is responding. Workflow configuration and a successful render are separate checks.');}catch(e){state.capabilities=null;$('connectionBadge').classList.remove('connected');$('connectionBadge').lastChild.textContent=' GPU not connected';notice(e.message);}finally{applyCapabilities();}}
-function progress(data){
-  $('renderState').textContent=data.status==='saving'?'Saving MP4':data.status==='complete'?'Saved':data.status||'Rendering';
+function progress(data,archived=false){
+  $('renderState').textContent=renderStatusLabel(data.status,archived);
   if(data.node)$('activeNode').textContent=data.node;
   const total=Number(data.total),step=Number(data.step);
   if(Number.isFinite(total)&&total>0&&Number.isFinite(step)){
@@ -63,10 +63,10 @@ function progress(data){
   if(data.message&&state.logs.at(-1)?.split('] ').slice(1).join('] ')!==data.message)log(data.message);
 }
 function mountVideo(job,index=0){state.current={job,index};$('videoPlayer').src='/api/media/'+job.id+'/'+index;$('videoPlayer').hidden=false;$('emptyPreview').hidden=true;$('download').href=$('videoPlayer').src+'?download';$('download').hidden=false;$('download').download='joshbox-'+job.id+'.mp4';$('fullscreen').disabled=false;$('extend').disabled=false;$('previewTag').textContent='SAVED TO PRIVATE GALLERY';}
-async function finishJob(id){const saved=await api('/api/video/jobs/'+id);progress(saved);if(saved.status==='complete'){state.busy=false;state.unresolved=false;state.requestId=null;clearTimeout(state.pollTimer);mountVideo(saved);await refreshGallery(false);notice('Video saved to your private gallery. You can download or extend it.');applyCapabilities();return true;}return false;}
+async function finishJob(id){const saved=await api('/api/video/jobs/'+id);progress(saved,saved.status==='complete');if(saved.status==='complete'){state.busy=false;state.unresolved=false;state.requestId=null;clearTimeout(state.pollTimer);mountVideo(saved);await refreshGallery(false);notice('Video saved to your private gallery. You can download or extend it.');applyCapabilities();return true;}return false;}
 async function monitor(id){
   clearTimeout(state.pollTimer);
-  try{const job=await api('/api/video/jobs/'+id);progress(job);if(job.status==='complete'){state.busy=false;state.unresolved=false;state.requestId=null;mountVideo(job);await refreshGallery(false);applyCapabilities();return;}
+  try{const job=await api('/api/video/jobs/'+id);progress(job,job.status==='complete');if(job.status==='complete'){state.busy=false;state.unresolved=false;state.requestId=null;mountVideo(job);await refreshGallery(false);applyCapabilities();return;}
     if(job.status==='failed'){state.busy=false;state.unresolved=false;state.requestId=null;notice(job.message||'Generation failed. Check the workflow.',true);applyCapabilities();return;}
     if(job.status==='uncertain'){state.busy=false;state.unresolved=true;notice(job.message||'The existing submission needs checking.',true);applyCapabilities();}
   }catch(e){notice(e.message,true);}

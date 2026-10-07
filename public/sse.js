@@ -1,3 +1,8 @@
+export function renderStatusLabel(status,archived=false){
+  if(status==='complete')return archived?'Saved':'Saving to private gallery';
+  if(status==='saving'||status==='archiving')return 'Saving MP4';
+  return status||'Rendering';
+}
 export async function consumeSSE(response,onEvent){
   if(!response.body)throw new Error('Missing progress stream.');
   const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';

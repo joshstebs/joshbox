@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {consumeSSE} from '../public/sse.js';
+import {consumeSSE,renderStatusLabel} from '../public/sse.js';
 test('POST SSE parser handles fragmented UTF-8, heartbeats and CRLF events',async()=>{
   const text=': heartbeat\r\n\r\nevent: progress\r\ndata: {"node":"Sampler ✦","step":2,"total":8}\r\n\r\nevent: completed\ndata: {"status":"complete"}\n\n';
   const bytes=new TextEncoder().encode(text);const chunks=Array.from(bytes,b=>Uint8Array.of(b));
@@ -11,4 +11,9 @@ test('POST SSE parser handles fragmented UTF-8, heartbeats and CRLF events',asyn
 test('SSE error handlers stop the stream instead of claiming a completed render',async()=>{
   const response=new Response('event: error\ndata: {"message":"Failed"}\n\n');
   await assert.rejects(()=>consumeSSE(response,()=>{throw new Error('Failed');}),/Failed/);
+});
+test('GPU completion is not shown as Saved until the private archive is confirmed',async()=>{
+  const states=[];await consumeSSE(new Response('event: completed\ndata: {"status":"complete"}\n\n'),(_,data)=>states.push(renderStatusLabel(data.status)));
+  assert.deepEqual(states,['Saving to private gallery']);
+  assert.equal(renderStatusLabel('complete',true),'Saved');
 });
