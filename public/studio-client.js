@@ -31,9 +31,9 @@ function applyCapabilities(){
   }
   $('aspectRatio').disabled=state.busy||(connected&&(!controls.includes('width')||!controls.includes('height')));
   $('negativePrompt').disabled=state.busy||(connected&&!controls.includes('negative'));
-  $('seed').disabled=state.busy||$('randomSeed').checked;
+  $('seed').disabled=state.busy||$('randomSeed').checked||(connected&&!controls.includes('seed'));
   $('sourceImage').disabled=state.busy;$('positivePrompt').disabled=state.busy;
-  $('randomSeed').disabled=state.busy;$('adultOnly').disabled=state.busy;
+  $('randomSeed').disabled=state.busy||(connected&&!controls.includes('seed'));$('adultOnly').disabled=state.busy;
   $('generateLabel').textContent=state.busy?'Rendering…':state.unresolved?'Check existing generation':'Generate Video';
   $('renderSpinner').hidden=!state.busy;
   $('generationHint').textContent=state.unresolved?'Refresh the existing job before generating again.':!connected?'Connect the GPU proxy to generate. No instance is started by this app.':!info?.ready?'This setup needs an exported workflow on your GPU.':'Keep the GPU running until your video is saved to the gallery.';
