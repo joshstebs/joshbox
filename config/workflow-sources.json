@@ -1,0 +1,11 @@
+{
+  "wan": {
+    "source": "https://github.com/Comfy-Org/ComfyUI/blob/62c49c4d4fe5e9e0095f6687374cec9da1dec7fa/blueprints/Image%20to%20Video%20(Wan%202.2).json",
+    "changes": "Flattened core graph; quality bypasses acceleration LoRAs with 20-step/CFG 3.5 defaults; fast retains 4-step/CFG 1/half-step split."
+  },
+  "minimax": {
+    "source": "Recovered API graph from user-provided ComfyUI MP4 metadata",
+    "changes": "Original prompt/image references removed; model loaders, res_multistep sampler, simple scheduler, video/audio VAEs preserved. Runtime inputs parameterized; quality/turbo branches resolved and unused nodes pruned."
+  },
+  "verification": "Graph structure and manifests checked locally. Wan rendering and fresh Ubuntu GPU bootstrap still require a real instance."
+}
