@@ -47,6 +47,7 @@ class ComfyFixture:
         return Reply({'prompt_id':'fixture-prompt'})
     async def get(self,url,**kwargs):
         if url.endswith('/system_stats'): return Reply({'devices':[{'name':'Test GPU fixture'}]})
+        if url.endswith('/object_info'):return Reply({node['class_type']:{'python_module':'comfy_extras.fixture'} for node in GRAPH.values()})
         return Reply({'fixture-prompt':{'status':{'completed':True,'status_str':'success'},'outputs':{'9':{'videos':[{'filename':'result.mp4','type':'output','subfolder':'video'}]}}}})
     def stream(self,*args,**kwargs): return OutputStream()
 
@@ -58,8 +59,8 @@ class ProxyTests(unittest.TestCase):
         with TestClient(proxy.app) as client:
             self.assertEqual(client.get('/api/capabilities').status_code,401)
             self.assertEqual(client.get('/healthz').status_code,200)
-        with self.assertRaises(proxy.HTTPException): proxy.template_for('fast')
-        with self.assertRaises(proxy.HTTPException): proxy.template_for('quality','wan22_14b')
+        self.assertIn('105:121',proxy.template_for('fast'))
+        self.assertFalse(proxy.graph_assets_present(proxy.template_for('quality','wan22_14b'),Path(TEMP.name)/'missing-comfy'))
 
     def test_grid_and_graph_mapping(self):
         settings=proxy.Settings(**self.settings())
@@ -69,6 +70,14 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(GRAPH['1']['inputs']['image'],'$image')
         with self.assertRaises(proxy.HTTPException): proxy.workflow(proxy.Settings(**self.settings(frames=120)),'image.png')
         with self.assertRaises(proxy.HTTPException): proxy.workflow(proxy.Settings(**self.settings(fps=16)),'image.png')
+        with self.assertRaises(proxy.HTTPException):proxy.workflow(proxy.Settings(**self.settings(model='wan22_14b',mode='fast',frames=81,fps=16,steps=8)),'image.png')
+    def test_boot_readiness_does_not_claim_missing_models_ready(self):
+        headers={'Authorization':'Bearer '+os.environ['VIDEO_PROXY_TOKEN']}
+        with patch.object(proxy.httpx,'AsyncClient',ComfyFixture),TestClient(proxy.app) as client:
+            result=client.get('/api/capabilities',headers=headers).json()
+            self.assertFalse(result['profiles']['wan22_14b']['fast']['ready'])
+            self.assertTrue(result['profiles']['minimax_h3']['quality']['ready']) # isolated no-loader fixture
+            self.assertFalse(result['vast_automation'])
 
     def test_sse_completion_is_saved_and_retries_do_not_resubmit(self):
         settings=self.settings(); headers={'Authorization':'Bearer '+os.environ['VIDEO_PROXY_TOKEN']}

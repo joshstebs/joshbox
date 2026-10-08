@@ -4,14 +4,14 @@ import {suggestedPrompts,appendSuggestion} from './prompt-suggestions.js';
 
 const $=id=>document.getElementById(id);
 const presets=[
-  {id:'minimax',model:'minimax_h3',name:'MiniMax H3',detail:'Image to video · native audio',mode:'quality',frames:124,fps:24,steps:20,fastSteps:8},
   {id:'wan14fast',model:'wan22_14b',name:'ϟ Wan 2.2 14B',detail:'4-step I2V LoRA profile',mode:'fast',frames:81,fps:16,steps:4,fastSteps:4},
   {id:'wan14quality',model:'wan22_14b',name:'✦ Wan 2.2 14B',detail:'Standard quality I2V profile',mode:'quality',frames:81,fps:16,steps:20,fastSteps:4},
+  {id:'minimax',model:'minimax_h3',name:'🎧 Audio · MiniMax H3',detail:'Recovered native audio workflow',mode:'quality',frames:124,fps:24,steps:20,fastSteps:8},
   {id:'wan5',model:'wan22_5b',name:'Wan 2.2 5B',detail:'TI2V · smaller model',mode:'quality',frames:81,fps:16,steps:20,fastSteps:8},
   {id:'ltx',model:'ltx23',name:'LTX 2.3',detail:'I2V · distilled profile',mode:'fast',frames:121,fps:24,steps:8,fastSteps:8},
   {id:'hunyuan',model:'hunyuan15',name:'HunyuanVideo 1.5',detail:'Cinematic I2V profile',mode:'quality',frames:81,fps:24,steps:30,fastSteps:8}
 ];
-const state={preset:presets[0],mode:'quality',capabilities:null,busy:false,unresolved:false,file:null,imageUrl:null,extension:null,current:null,jobs:[],requestId:null,pollTimer:null,logs:[]};
+const state={preset:presets[0],mode:'fast',capabilities:null,busy:false,unresolved:false,file:null,imageUrl:null,extension:null,current:null,jobs:[],requestId:null,pollTimer:null,logs:[]};
 function notice(text,error=false){const box=$(error?'error':'notice');box.textContent=text;box.hidden=!text;}
 function log(message){state.logs.push('['+new Date().toLocaleTimeString()+'] '+message);state.logs=state.logs.slice(-150);$('executionLog').textContent=state.logs.join('\n');}
 async function api(url,options={}){const response=await fetch(url,{...options,cache:'no-store'});let value;try{value=await response.json();}catch{throw new Error('Sign in again or check your connection.');}if(!response.ok)throw new Error(value.error||value.detail||'The request failed.');return value;}
@@ -19,6 +19,7 @@ function profile(mode=state.mode){return state.capabilities?.profiles?.[state.pr
 function applyCapabilities(){
   const info=profile(),controls=info?.controls||[];
   const connected=!!state.capabilities?.connected;
+  if(info?.fixed_steps){$('steps').value=String(info.fixed_steps);$('stepsSlider').value=$('steps').value;}
   $('generate').disabled=state.busy||state.unresolved||!connected||!info?.ready;
   $('fastMode').disabled=state.busy||(connected&&!profile('fast')?.ready);
   $('qualityMode').disabled=state.busy||(connected&&!profile('quality')?.ready);
@@ -27,7 +28,7 @@ function applyCapabilities(){
   for(const [id,token] of [['frames','frames'],['fps','fps'],['steps','steps'],['motionBucket','motion_bucket'],['motionScale','motion_scale']]){
     const enabled=(!connected&&!id.startsWith('motion'))||controls.includes(token);
     const fixedH3=state.preset.model==='minimax_h3'&&id==='fps';
-    $(id).disabled=state.busy||!enabled||fixedH3;$(id+'Slider').disabled=$(id).disabled;
+    $(id).disabled=state.busy||!enabled||fixedH3||(id==='steps'&&!!info?.fixed_steps);$(id+'Slider').disabled=$(id).disabled;
   }
   $('aspectRatio').disabled=state.busy||(connected&&(!controls.includes('width')||!controls.includes('height')));
   $('negativePrompt').disabled=state.busy||(connected&&!controls.includes('negative'));
@@ -41,18 +42,33 @@ function applyCapabilities(){
   $('qualityMode').classList.toggle('selected',state.mode==='quality');$('qualityMode').setAttribute('aria-pressed',String(state.mode==='quality'));
   $('fastMode').classList.toggle('selected',state.mode==='fast');$('fastMode').setAttribute('aria-pressed',String(state.mode==='fast'));
   $('frames').step=state.preset.model==='minimax_h3'?'17':state.preset.model==='ltx23'?'8':'4';
-  $('frames').min=state.preset.model==='minimax_h3'?'5':'1';
+  $('frames').min=state.preset.model==='ltx23'?'9':'5';
   $('framesSlider').step=$('frames').step;$('framesSlider').min=$('frames').min;$('framesSlider').value=$('frames').value;
   $('controlHint').textContent=state.preset.model==='minimax_h3'?'Native H3: 24 FPS, 17k+5 frame grid. Motion controls need an explicit workflow mapping.':'These are draft presets. The installed workflow determines supported controls; motion controls stay disabled unless mapped.';
   renderPicks();updateDuration();
   for(const button of document.querySelectorAll('[data-seconds]'))button.disabled=state.busy||(connected&&!controls.includes('frames'));
 }
 function renderPicks(){
-  $('quickPicks').replaceChildren(...presets.map(p=>{const button=document.createElement('button');button.type='button';button.className='quick-pick'+(state.preset.id===p.id?' selected':'');button.setAttribute('aria-pressed',String(state.preset.id===p.id));button.disabled=state.busy;const title=document.createElement('strong');title.textContent=p.name;const detail=document.createElement('small');detail.textContent=p.detail;const badge=document.createElement('span');const available=state.capabilities?.profiles?.[p.model]?.[p.mode]?.ready;badge.className='preset-state'+(available?' available':'');badge.textContent=available?'WORKFLOW CONFIGURED':'SETUP NEEDED';button.append(title,detail,badge);button.addEventListener('click',()=>{state.preset=p;state.mode=p.mode;$('boost').checked=false;for(const id of ['frames','fps','steps']){$(id).value=p[id];$(id+'Slider').value=p[id];}applyCapabilities();notice(available?'Preset loaded. Review your image and prompt.':'Draft preset loaded. This model is not connected; no installation or generation was started.');});return button;}));
+  $('quickPicks').replaceChildren(...presets.map(p=>{const button=document.createElement('button');button.type='button';button.className='quick-pick'+(state.preset.id===p.id?' selected':'');button.setAttribute('aria-pressed',String(state.preset.id===p.id));button.disabled=state.busy;const title=document.createElement('strong');title.textContent=p.name;const detail=document.createElement('small');detail.textContent=p.detail;const badge=document.createElement('span');const available=state.capabilities?.profiles?.[p.model]?.[p.mode]?.ready;badge.className='preset-state'+(available?' available':'');badge.textContent=available?'MODELS & NODES READY':state.capabilities?.profiles?.[p.model]?.[p.mode]?.configured?'MODEL SETUP PENDING':'SETUP NEEDED';button.append(title,detail,badge);button.addEventListener('click',()=>{state.preset=p;state.mode=p.mode;$('boost').checked=false;for(const id of ['frames','fps','steps']){$(id).value=p[id];$(id+'Slider').value=p[id];}applyCapabilities();notice(available?'Preset loaded. Review your image and prompt.':'Draft preset loaded. This model is not connected; no installation or generation was started.');});return button;}));
 }
 function updateSuggestions(){const prompt=$('positivePrompt').value;$('promptCount').textContent=prompt.length+' / 3000';const choices=prompt?suggestedPrompts(prompt,'video'):['Slow camera push','Gentle natural movement','Pan across the scene'];$('suggestions').replaceChildren(...choices.map(text=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.disabled=state.busy||appendSuggestion(prompt,text).length>3000;button.onclick=()=>{$('positivePrompt').value=appendSuggestion($('positivePrompt').value,text);updateSuggestions();};return button;}));}
 function setImage(file,extension=null){if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>12*1024**2)throw new Error('Use PNG, JPG, or WebP under 12 MB.');if(state.imageUrl)URL.revokeObjectURL(state.imageUrl);state.file=file;state.extension=extension;state.imageUrl=URL.createObjectURL(file);$('imagePreview').src=state.imageUrl;$('imagePreview').hidden=false;$('uploadCopy').hidden=true;$('removeImage').hidden=false;$('extensionNote').hidden=!extension;$('extensionNote').textContent=extension?'Starting from the previous video’s last frame. Describe the next scene.':'';}
-async function checkConnection(){try{state.capabilities=await api('/api/video/connection');$('connectionBadge').classList.add('connected');$('connectionBadge').lastChild.textContent=' GPU responding';notice('Proxy is responding. Workflow configuration and a successful render are separate checks.');}catch(e){state.capabilities=null;$('connectionBadge').classList.remove('connected');$('connectionBadge').lastChild.textContent=' GPU not connected';notice(e.message);}finally{applyCapabilities();}}
+let healthTimer;
+function lifecycle(value){
+  const phase=value?.state||'Offline';$('gpuPhase').textContent=phase;$('gpuMessage').textContent=value?.message||'Connect your GPU proxy to begin.';
+  const stages=['Offline','Starting','Downloading Models','Ready','Generating'],index=stages.indexOf(phase);
+  for(const item of $('gpuStages').children)item.classList.toggle('active',item.dataset.phase===phase),item.classList.toggle('done',stages.indexOf(item.dataset.phase)<index);
+  const total=Number(value?.total_assets)||0,complete=Number(value?.completed_assets)||0;
+  $('modelDownloadProgress').hidden=phase!=='Downloading Models'||!total;
+  $('modelDownloadProgress').textContent=complete+' / '+total+' selected files verified'+(value?.total_bytes?' · '+(Number(value.completed_bytes||0)/1e9).toFixed(1)+' / '+(Number(value.total_bytes)/1e9).toFixed(1)+' GB':'');
+  $('connectionBadge').classList.toggle('connected',['Ready','Generating'].includes(phase));$('connectionBadge').lastChild.textContent=' GPU '+phase.toLowerCase();
+}
+async function checkConnection(){
+  clearTimeout(healthTimer);
+  try{state.capabilities=await api('/api/video/connection');lifecycle(state.capabilities.lifecycle);if(state.capabilities.lifecycle?.state==='Error')notice(state.capabilities.lifecycle.message,true);}
+  catch(e){state.capabilities=null;lifecycle({state:'Offline',message:e.message});}
+  finally{applyCapabilities();healthTimer=setTimeout(()=>{if(!document.hidden)void checkConnection();else healthTimer=setTimeout(()=>void checkConnection(),10000);},['Starting','Downloading Models'].includes(state.capabilities?.lifecycle?.state)?4000:15000);}
+}
 function progress(data,archived=false){
   $('renderState').textContent=renderStatusLabel(data.status,archived);
   if(data.node)$('activeNode').textContent=data.node;
@@ -81,8 +97,8 @@ async function generate(event){
   const dimensions={landscape:[1024,576],portrait:[576,1024],square:[768,768]}[$('aspectRatio').value];
   const seed=$('randomSeed').checked?crypto.getRandomValues(new Uint32Array(1))[0]%2147483648:Number($('seed').value);$('seed').value=String(seed);
   const settings={request_id:state.requestId||crypto.randomUUID(),model:state.preset.model,mode:state.mode,prompt:$('positivePrompt').value.trim(),negative:$('negativePrompt').value,width:dimensions[0],height:dimensions[1],frames:Number($('frames').value),fps:Number($('fps').value),steps:Number($('steps').value),motion_bucket:Number($('motionBucket').value),motion_scale:Number($('motionScale').value),seed,extend_job_id:state.extension?.job.id,extend_index:state.extension?.index};
-  for(const [id,min,max] of [['frames',1,362],['fps',1,60],['steps',1,100],['motion_bucket',0,255],['motion_scale',0,10],['seed',0,2147483647]])if(!Number.isFinite(settings[id])||settings[id]<min||settings[id]>max||(id!=='motion_scale'&&!Number.isInteger(settings[id]))){notice('Check the '+id.replace('_',' ')+' value.',true);return;}
-  state.requestId=settings.request_id;state.busy=true;if(innerWidth<1024)document.querySelector('.monitor').scrollIntoView({behavior:'smooth',block:'start'});applyCapabilities();updateSuggestions();log('Sending the image and settings to your GPU proxy.');$('activeNode').textContent='Preparing the workflow';$('progressTrack').classList.add('indeterminate');
+  for(const [id,min,max] of [['frames',5,362],['fps',1,60],['steps',1,100],['motion_bucket',0,255],['motion_scale',0,10],['seed',0,2147483647]])if(!Number.isFinite(settings[id])||settings[id]<min||settings[id]>max||(id!=='motion_scale'&&!Number.isInteger(settings[id]))){notice('Check the '+id.replace('_',' ')+' value.',true);return;}
+  state.requestId=settings.request_id;state.busy=true;lifecycle({state:'Generating',message:'Submitting your generation to the selected workflow.'});if(innerWidth<1024)document.querySelector('.monitor').scrollIntoView({behavior:'smooth',block:'start'});applyCapabilities();updateSuggestions();log('Sending the image and settings to your GPU proxy.');$('activeNode').textContent='Preparing the workflow';$('progressTrack').classList.add('indeterminate');
   const form=new FormData();form.append('settings',JSON.stringify(settings));form.append('image',state.file);
   let completed=false;
   try{const response=await fetch('/api/generate',{method:'POST',body:form});if(!response.ok){const value=await response.json();if([400,403,409,413,422,503].includes(response.status))state.requestId=null;throw new Error(value.error||'Generation request failed.');}
@@ -121,5 +137,6 @@ $('loopVideo').onchange=()=>{$('videoPlayer').loop=$('loopVideo').checked;};
 $('fullscreen').onclick=()=>{$('videoPlayer').requestFullscreen?.().catch(()=>notice('Fullscreen is unavailable on this device. Use the player controls.'));};
 $('extend').onclick=()=>void extendCurrent();$('checkConnection').onclick=()=>void checkConnection();$('refreshGallery').onclick=()=>void refreshGallery();
 $('chooseGallery').onclick=()=>{$('imagePicker').showModal();};$('closePicker').onclick=()=>{$('imagePicker').close();};
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.requestId&&!state.busy)void monitor(state.requestId);});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void checkConnection();if(!document.hidden&&state.requestId&&!state.busy)void monitor(state.requestId);});
+for(const id of ['frames','fps','steps']){$(id).value=state.preset[id];$(id+'Slider').value=state.preset[id];}
 updateSuggestions();applyCapabilities();void checkConnection();void refreshGallery();
