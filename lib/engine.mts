@@ -21,9 +21,11 @@ export function videoControls(config:WorkflowConfig) {
     const fast=config.fastTemplate||config.template;
     const inspect=(template?:string)=>{
       if(!template)return null;
+      try {
       const graph=validateGraph(JSON.parse(template));const text=JSON.stringify(graph);
       const has=(token:string)=>text.includes(JSON.stringify(token));
       return {valid:has('$prompt')&&has('$image'),h3:Object.values(graph).some(n=>n.class_type==='MiniMaxH3ImageToVideo'),duration:has('$duration')||has('$frames'),aspect:has('$width')&&has('$height'),turbo:has('$turbo'),steps:has('$steps')};
+      } catch { return null; }
     };
     const q=inspect(quality),f=inspect(fast);
     result.quality=!!q?.valid;
@@ -56,3 +58,4 @@ export function makeWorkflow(input:GenerationInput,config:WorkflowConfig):Graph 
 export function historyFiles(entry:{outputs?:Record<string,Record<string,unknown>>}):{filename:string;subfolder:string;type:string;kind:'image'|'video'}[] {
   const out:ReturnType<typeof historyFiles>=[];for(const node of Object.values(entry.outputs??{}))for(const field of ['images','gifs','videos']){const list=node[field];if(!Array.isArray(list))continue;for(const f of list){if(!f||typeof f.filename!=='string'||!/\.(png|jpe?g|webp|mp4|webm|gif)$/i.test(f.filename))continue;const folder=typeof f.subfolder==='string'?f.subfolder:'';if(f.filename.includes('/')||f.filename.includes('\\')||f.filename.includes('..')||folder.split(/[\\/]/).includes('..'))continue;const type=f.type??'output';if(type!=='output')continue;out.push({filename:f.filename,subfolder:folder,type,kind:/\.(mp4|webm)$/i.test(f.filename)?'video':'image'});}}return out.slice(0,8);
 }
+
