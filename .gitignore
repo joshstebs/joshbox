@@ -50,3 +50,13 @@ next-env.d.ts
 *.tsbuildinfo
 __pycache__/
 *.pyc
+# Model weights, private token files, and local warehouse content never belong in Git.
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+/models/
+/model-library/
+/private-assets/
+config/private-assets.json

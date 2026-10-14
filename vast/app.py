@@ -21,6 +21,7 @@ import websockets
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from model_library import PROJECT,profile_spec,graph_assets_present
 
 DATA = Path(os.environ.get('JOSHBOX_DATA_DIR', '/workspace/joshbox-data'))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -43,11 +44,11 @@ class Settings(BaseModel):
     prompt: str = Field(min_length=8, max_length=3000)
     negative: str = Field(default='', max_length=1500)
     mode: str = 'quality'
-    model: str = 'minimax_h3'
+    model: str = 'wan22_14b'
     width: int = Field(default=1024, ge=256, le=2048)
     height: int = Field(default=576, ge=256, le=2048)
-    frames: int = Field(default=124, ge=5, le=362)
-    fps: int = Field(default=24, ge=1, le=60)
+    frames: int = Field(default=81, ge=5, le=362)
+    fps: int = Field(default=16, ge=1, le=60)
     steps: int = Field(default=20, ge=1, le=100)
     motion_bucket: int = Field(default=127, ge=0, le=255)
     motion_scale: float = Field(default=1, ge=0, le=10)
@@ -89,6 +90,8 @@ def update(job, event, **fields):
 def template_for(mode, model='minimax_h3'):
     name = 'WORKFLOW_' + MODELS[model] + '_' + mode.upper() + '_PATH'
     filename = os.environ.get(name, '') or (os.environ.get('WORKFLOW_' + mode.upper() + '_PATH', '') if model=='minimax_h3' else '')
+    spec=profile_spec(model,mode)
+    if not filename and spec:filename=str(PROJECT/spec['workflow'])
     if not filename or not Path(filename).is_file(): raise HTTPException(503, f'The {mode} workflow has not been configured.')
     try: graph = json.loads(Path(filename).read_text())
     except (ValueError, OSError): raise HTTPException(503, 'Workflow file could not be read.')
@@ -104,8 +107,12 @@ def workflow(settings, image):
     graph = template_for(settings.mode, settings.model)
     h3 = any(n['class_type'] == 'MiniMaxH3ImageToVideo' for n in graph.values())
     if h3 and (settings.fps != 24 or (settings.frames - 5) % 17): raise HTTPException(422, 'Native H3 requires 24 FPS and a 17k+5 frame count (124, 243, or 362 for about 5, 10, or 15 seconds).')
+    if settings.model.startswith('wan22') and (settings.frames-1)%4:raise HTTPException(422,'Wan requires a 4k+1 frame count, such as 81.')
+    if settings.model=='wan22_14b' and settings.steps<2:raise HTTPException(422,'The two-stage Wan workflow needs at least two sampling steps.')
+    spec=profile_spec(settings.model,settings.mode)
+    if spec and spec.get('fixed_steps') and settings.steps!=spec['fixed_steps']:raise HTTPException(422,'The accelerated workflow uses a fixed verified sampling-step count.')
     if settings.width % 32 or settings.height % 32: raise HTTPException(422, 'Dimensions must be multiples of 32.')
-    values = {'$prompt': settings.prompt, '$negative': settings.negative, '$image': image, '$width': settings.width, '$height': settings.height, '$frames': settings.frames, '$fps': settings.fps, '$steps': settings.steps, '$seed': settings.seed, '$motion_bucket': settings.motion_bucket, '$motion_scale': settings.motion_scale}
+    values = {'$prompt': settings.prompt, '$negative': settings.negative, '$image': image, '$width': settings.width, '$height': settings.height, '$frames': settings.frames, '$fps': settings.fps, '$steps': settings.steps, '$split_steps':max(1,settings.steps//2), '$seed': settings.seed, '$motion_bucket': settings.motion_bucket, '$motion_scale': settings.motion_scale}
     def replace(value):
         if isinstance(value, str) and value.startswith('$'):
             if value not in values: raise HTTPException(503, 'Unknown workflow input placeholder.')
@@ -218,21 +225,44 @@ app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 @app.get('/healthz')
 async def healthz(): return {'service': 'JoshBox', 'running': True}
 
+def boot_state():
+    path=Path(os.environ.get('JOSHBOX_BOOT_STATE',DATA/'bootstrap-state.json'))
+    try:
+        value=json.loads(path.read_text(encoding='utf-8'))
+        return value if time.time()-value.get('updated_at',0)<180 else {}
+    except (OSError,ValueError):return {}
+
+async def installed_nodes(client):
+    result=await client.get(COMFY+'/object_info');result.raise_for_status()
+    return result.json()
+
+def graph_installed(graph,nodes):
+    return all(node['class_type'] in nodes and not str(nodes[node['class_type']].get('python_module','')).startswith('comfy_api_nodes') for node in graph.values()) and graph_assets_present(graph,os.environ.get('COMFY_DIR','/workspace/ComfyUI'))
+
 @app.get('/api/capabilities', dependencies=[Depends(auth)])
 async def capabilities():
-    async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
-        try: (await client.get(COMFY + '/system_stats')).raise_for_status()
-        except Exception: raise HTTPException(503, 'ComfyUI is not responding.')
-    profiles = {}
+    boot=boot_state();online=False;nodes={}
+    async with httpx.AsyncClient(timeout=5,trust_env=False) as client:
+        try:
+            (await client.get(COMFY+'/system_stats')).raise_for_status()
+            nodes=await installed_nodes(client);online=True
+        except Exception:pass
+    profiles={}
     for model in MODELS:
-        modes = {}
-        for mode in ('quality', 'fast'):
+        modes={}
+        for mode in ('quality','fast'):
             try:
-                graph = template_for(mode, model); text = json.dumps(graph)
-                modes[mode] = {'ready': True, 'controls': [x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('$'+x) in text], 'h3': any(n['class_type']=='MiniMaxH3ImageToVideo' for n in graph.values())}
-            except HTTPException: modes[mode] = {'ready': False, 'controls': []}
-        profiles[model] = modes
-    return {'connected': True, 'profiles': profiles, 'modes': profiles['minimax_h3']}
+                graph=template_for(mode,model);text=json.dumps(graph);spec=profile_spec(model,mode) or {}
+                present=online and graph_installed(graph,nodes)
+                modes[mode]={'ready':present,'configured':True,'controls':[x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('$'+x) in text],'h3':any(n['class_type']=='MiniMaxH3ImageToVideo' for n in graph.values()),'defaults':spec.get('defaults',{}),'fixed_steps':spec.get('fixed_steps'),'reason':None if present else 'Models or core nodes are not available yet.'}
+            except (HTTPException,ValueError):modes[mode]={'ready':False,'configured':False,'controls':[]}
+        profiles[model]=modes
+    ready=online and any(info['ready'] for modes in profiles.values() for info in modes.values())
+    active=DB.execute("SELECT 1 FROM jobs WHERE status IN ('submitting','queued','running','saving') LIMIT 1").fetchone()
+    phase='Generating' if ready and active else 'Ready' if ready else boot.get('state','Starting' if online else 'Offline')
+    if phase in ('Ready','Generating') and not ready:phase='Starting' if online else 'Offline'
+    if phase not in ('Offline','Starting','Downloading Models','Ready','Generating','Error'):phase='Offline'
+    return {'connected':ready,'proxy_connected':True,'profiles':profiles,'modes':profiles['wan22_14b'],'lifecycle':{'state':phase,'message':boot.get('message','GPU and model readiness checked.' if ready else 'Waiting for verified model setup.'),'completed_assets':boot.get('completed_assets',0),'total_assets':boot.get('total_assets',0),'completed_bytes':boot.get('completed_bytes',0),'total_bytes':boot.get('total_bytes',0)},'private_assets':{'repository':os.environ.get('HF_ASSETS_REPO',''),'token_configured':bool(os.environ.get('HF_TOKEN'))},'vast_automation':False}
 
 @app.post('/api/generate', dependencies=[Depends(auth)])
 async def generate(request: Request):
@@ -249,6 +279,10 @@ async def generate(request: Request):
             if job['status'] not in ('complete','failed'): start_task(job)
         else:
             graph = workflow(settings, 'pending.png')
+            async with httpx.AsyncClient(timeout=10,trust_env=False) as client:
+                try:info=await installed_nodes(client)
+                except Exception:raise HTTPException(503,'ComfyUI is not ready yet.')
+            if not graph_installed(graph,info):raise HTTPException(503,'Required model files or core nodes are not installed.')
             image = form.get('image')
             if not image or not hasattr(image, 'read'): raise HTTPException(422, 'Select a starting image.')
             content = await image.read(12*1024**2 + 1)
