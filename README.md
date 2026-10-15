@@ -30,7 +30,7 @@ Completed MP4s are first copied into the wrapper's persistent data directory. Th
 
 ## Set up on the existing Vast Ubuntu instance
 
-This setup requires a manually started instance. Run it only when ready to incur the existing GPU rental cost. No account or rental control is included in the app or script.
+This setup requires a manually started instance. Run it only when ready to incur the existing GPU rental cost. No account or rental control is included in the app or script. For phone use, prefer the one-command mobile bootstrap below instead of running the individual install/download steps by hand.
 
 1. Keep the existing ComfyUI installation and model files. Do not replace or update them as part of installing the wrapper.
 2. Place this repository at `/workspace/joshbox`. Create an isolated Python environment for the wrapper:
@@ -53,6 +53,20 @@ The script checks NVIDIA availability, sets CUDA variables while preserving expl
 6. Expose only the authenticated wrapper via the existing protected Vast proxy with trusted HTTPS. A local SSH tunnel can be used for local-only access but is not reachable by the hosted Site. Do not expose ComfyUI itself. The entrypoint will refuse to start a duplicate ComfyUI process; do not run it alongside another launcher on port 8188.
 7. Configure the existing Site's protected runtime `VIDEO_PROXY_URL` and `VIDEO_PROXY_TOKEN`. The URL is the wrapper base URL, with a supported path prefix if needed, without credentials/query secrets. The old `COMFY_*` settings remain available for the legacy adapter.
 8. Check the GPU connection from the dashboard, generate a short clip, verify real step/node events, wait for private-gallery saving, download the MP4, and test Extend Video. Confirm downloads still work after stopping the GPU.
+
+## Mobile-first one-command setup
+
+After the private repository has been cloned to `/workspace/joshbox`, run:
+
+```bash
+bash /workspace/joshbox/vast/setup_mobile.sh
+```
+
+The script verifies the GPU and ComfyUI path, creates the wrapper virtual environment, installs pinned requirements, downloads or resumes the Wan 2.2 5B model set directly into the correct ComfyUI folders, and creates a private runtime env file with a random proxy token. It is idempotent and skips completed model files.
+
+See `vast/MOBILE_SETUP.md` for the short phone-oriented path. `vast/onstart.example.sh` is provided for reuse on instances that already contain the private repository checkout. A fresh instance still needs authenticated access to the private GitHub repo before those scripts can run.
+
+The bootstrap intentionally does not invent or silently transform a ComfyUI workflow. A verified API-format Wan 2.2 workflow is still required before JoshBox enables generation.
 
 ## Workflow mapping
 
