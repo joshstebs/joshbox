@@ -1,0 +1,7 @@
+The uploaded `wan22-5b-api (1).json` is bundled as `workflows/wan22-5b-quality.json`. Source SHA-256: `47e8623ed1e4e023c4c1e6b13b2e66974d33c046364aad20c09096d726d14510`.
+
+Exact substitutions: node 6 text → `$prompt`; 7 text → `$negative`; 3 seed/steps → `$seed`/`$steps`; 55 width/height/length → `$width`/`$height`/`$frames`; 57 fps → `$fps`. Loaders 37/38/39 retain `wan2.2_ti2v_5B_fp16.safetensors`, `umt5_xxl_fp8_e4m3fn_scaled.safetensors`, and `wan2.2_vae.safetensors`. All other inputs, node IDs, links, CFG 5, uni_pc/simple sampling, shift 8, and SaveVideo settings remain as exported.
+
+The full export has no LoadImage node or image input connection. It is a text-to-video graph despite the latent node name. JoshBox requires a starting image, so it rejects this graph with an explicit explanation before submission. An image-connected API export is still needed to enable generation; no image mapping or accelerated Fast profile has been inferred. SaveVideo retains auto settings; MP4 output and GPU node compatibility require a real render before being claimed verified.
+
+The one-command setup automatically copies the graph beside the private env file into `joshbox-workflows/wan22-5b-quality.json` and fills a missing or empty `WORKFLOW_WAN5_QUALITY_PATH`. Existing custom paths and Fast settings are preserved. Reruns refresh only the bundled installed copy. No secrets are included in the workflow.

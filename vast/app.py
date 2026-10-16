@@ -97,6 +97,8 @@ def template_for(mode, model='minimax_h3'):
         if not isinstance(node, dict) or not isinstance(node.get('inputs'), dict) or not isinstance(node.get('class_type'), str): raise HTTPException(503, 'Use API-format workflow JSON, not a node-editor export.')
         if re.search(r'api|openai|replicate|falai|runway|kling|luma|gemini|anthropic|minimax(?!h3)', node['class_type'], re.I): raise HTTPException(503, 'Only trusted local GPU workflows are supported.')
     text = json.dumps(graph)
+    if model == 'wan22_5b' and '"$image"' not in text:
+        raise HTTPException(503, 'The Wan 5B export has no starting-image connection. Install a verified image-connected API export before image-to-video generation.')
     if '"$prompt"' not in text or '"$image"' not in text: raise HTTPException(503, 'Map the workflow prompt and starting image inputs first.')
     return graph
 

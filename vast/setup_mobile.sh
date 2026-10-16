@@ -56,9 +56,11 @@ else
   note "Keeping existing runtime file: $ENV_FILE"
 fi
 
+"$VENV/bin/python" "$ROOT/vast/install_wan5_workflow.py" "$ENV_FILE"
+
 note "Setup complete."
 note "Wan 2.2 model files: ready"
 note "JoshBox wrapper: ready"
-note "Workflow JSON: still required before generation"
-note "Next command after adding a verified workflow path:"
+note "Wan 5B Quality workflow installed; starting-image connection absent in export. Generation remains disabled for this graph."
+note "Runtime start command (generation still requires an image-connected export):"
 printf '  set -a; source %q; set +a; bash %q\n' "$ENV_FILE" "$ROOT/vast/start_vast.sh"

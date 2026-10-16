@@ -66,7 +66,7 @@ The script verifies the GPU and ComfyUI path, creates the wrapper virtual enviro
 
 See `vast/MOBILE_SETUP.md` for the short phone-oriented path. `vast/onstart.example.sh` is provided for reuse on instances that already contain the private repository checkout. A fresh instance still needs authenticated access to the private GitHub repo before those scripts can run.
 
-The bootstrap intentionally does not invent or silently transform a ComfyUI workflow. A verified API-format Wan 2.2 workflow is still required before JoshBox enables generation.
+The bootstrap installs the uploaded Wan 2.2 5B Quality API graph and fills an empty Quality path automatically. This export has no starting-image connection, so image-to-video generation remains disabled with an explicit explanation. Fast is unconfigured. See `workflows/README.md` for exact mappings, provenance, and the remaining GPU verification.
 
 ## Workflow mapping
 
@@ -87,8 +87,11 @@ Use the pinned pnpm version and `pnpm install --frozen-lockfile`. On Windows, th
 ```text
 node --experimental-strip-types --test tests/engine.test.mjs tests/studio-controls.test.mjs tests/sse.test.mjs
 node node_modules/typescript/bin/tsc --noEmit
-python -m unittest discover -s vast -p test_proxy.py -v
+python -m unittest discover -s vast -p 'test_*.py' -v
 bash -n vast/start_vast.sh
+bash -n vast/setup_mobile.sh
+bash -n vast/bootstrap_wan22_5b.sh
+bash -n vast/onstart.example.sh
 ```
 
 Build using the Sites plugin's `build-site.mjs`. If editing browser utility TypeScript, regenerate the vanilla modules with:

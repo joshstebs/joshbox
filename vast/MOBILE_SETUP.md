@@ -17,13 +17,14 @@ That single command:
 - installs the pinned wrapper requirements
 - downloads/resumes the Wan 2.2 5B model, FP8 text encoder, and VAE directly into ComfyUI
 - creates a private runtime env file with a random proxy token
+- installs the bundled Wan 5B Quality workflow and fills an empty Quality path, preserving custom paths
 - leaves existing files alone when they are already complete
 
 It is safe to rerun after an interrupted download.
 
 ## What it intentionally does not do
 
-It does not rent or stop a GPU, expose ComfyUI publicly, place secrets in GitHub, or invent a workflow mapping. JoshBox still needs a verified ComfyUI API-format workflow JSON before Generate is enabled.
+It does not rent or stop a GPU, expose ComfyUI publicly, place secrets in GitHub, or invent a workflow mapping. The bundled export has no starting-image connection. JoshBox reports that limitation and keeps generation disabled until an image-connected API export is configured. Fast remains unconfigured. See `workflows/README.md`.
 
 ## Reusing a surviving instance
 
@@ -35,7 +36,7 @@ If the instance still has the repo and model files, rerun the same command. Comp
 
 ## Runtime start
 
-After a verified Wan 2.2 5B workflow has been saved on the GPU and its path is set in `/workspace/joshbox.env`:
+After setup, start the private runtime using the generated settings (generation still requires an image-connected export):
 
 ```bash
 set -a
