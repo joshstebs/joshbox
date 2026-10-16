@@ -66,7 +66,7 @@ The script verifies the GPU and ComfyUI path, creates the wrapper virtual enviro
 
 See `vast/MOBILE_SETUP.md` for the short phone-oriented path. `vast/onstart.example.sh` is provided for reuse on instances that already contain the private repository checkout. A fresh instance still needs authenticated access to the private GitHub repo before those scripts can run.
 
-The bootstrap installs the uploaded Wan 2.2 5B Quality API graph and fills an empty Quality path automatically. This export has no starting-image connection, so image-to-video generation remains disabled with an explicit explanation. Fast is unconfigured. See `workflows/README.md` for exact mappings, provenance, and the remaining GPU verification.
+The bootstrap installs the uploaded Wan 2.2 5B Quality API graph and fills an empty Quality path automatically. The installed graph maps node 56 to the starting image and node 55 to that image latent. Fast is unconfigured. See `workflows/README.md` for exact mappings, provenance, and the remaining GPU verification.
 
 ## Workflow mapping
 

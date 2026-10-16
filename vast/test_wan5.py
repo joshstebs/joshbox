@@ -22,11 +22,12 @@ class Wan5Tests(unittest.TestCase):
                     '37': {'unet_name': 'wan2.2_ti2v_5B_fp16.safetensors'},
                     '38': {'clip_name': 'umt5_xxl_fp8_e4m3fn_scaled.safetensors'},
                     '39': {'vae_name': 'wan2.2_vae.safetensors'}}
-        self.assertEqual(len(graph), 11)
+        self.assertEqual(len(graph), 12)
         for node, inputs in expected.items():
             for key, value in inputs.items():
                 self.assertEqual(graph[node]['inputs'][key], value)
-        self.assertNotIn('$image', json.dumps(graph))
+        self.assertEqual(graph['56']['inputs']['image'], '$image')
+        self.assertEqual(graph['55']['inputs']['start_image'], ['56', 0])
         self.assertEqual(graph['58']['inputs']['video'], ['57', 0])
 
     def test_install_rerun_and_custom_paths(self):
