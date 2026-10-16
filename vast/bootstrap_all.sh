@@ -17,8 +17,11 @@ CLOUDFLARED_TUNNEL_TOKEN="${CLOUDFLARED_TUNNEL_TOKEN:-${TUNNEL_TOKEN:-}}"
 note(){ printf '[joshbox-bootstrap] %s\n' "$*"; }
 die(){ note "ERROR: $*"; exit 1; }
 [[ -f "$ROOT/vast/start_vast.sh" ]] || die "JoshBox checkout not found at $ROOT."
-[[ -d "$COMFY_DIR" ]] || die "ComfyUI not found at $COMFY_DIR."
 command -v curl >/dev/null || die 'curl is required for local and tunnel health checks.'
+command -v flock >/dev/null || die 'flock is required to prevent overlapping bootstrap runs.'
+mkdir -p "$(dirname "$ENV_FILE")"
+exec 9>"${ENV_FILE}.bootstrap.lock"
+flock -n 9 || die 'Another JoshBox bootstrap is already running.'
 
 if [[ -f "$ENV_FILE" ]]; then
   set -a
@@ -47,6 +50,9 @@ EOF
   set +a
 fi
 PUBLIC_URL="${VIDEO_PROXY_URL:-${PUBLIC_URL:-}}"
+CLOUDFLARED_TUNNEL_TOKEN="${CLOUDFLARED_TUNNEL_TOKEN:-${TUNNEL_TOKEN:-}}"
+[[ "${HEALTH_TIMEOUT:-180}" =~ ^[1-9][0-9]*$ ]] || die 'HEALTH_TIMEOUT must be a positive integer.'
+[[ -d "$COMFY_DIR" ]] || die "ComfyUI not found at $COMFY_DIR."
 
 mkdir -p "$LOG_DIR"
 chmod 700 "$LOG_DIR"
@@ -65,7 +71,7 @@ start_tunnel() {
   command -v "$CLOUDFLARED_BIN" >/dev/null || die "cloudflared was not found; install it or set CLOUDFLARED_BIN."
   touch "$LOG_DIR/cloudflared.log"
   chmod 600 "$LOG_DIR/cloudflared.log"
-  nohup "$CLOUDFLARED_BIN" tunnel --no-autoupdate run --token "$CLOUDFLARED_TUNNEL_TOKEN" >>"$LOG_DIR/cloudflared.log" 2>&1 < /dev/null &
+  TUNNEL_TOKEN="$CLOUDFLARED_TUNNEL_TOKEN" nohup "$CLOUDFLARED_BIN" tunnel --no-autoupdate run >>"$LOG_DIR/cloudflared.log" 2>&1 < /dev/null 9>&- &
   printf '%s\n' "$!" > "$LOG_DIR/cloudflared.pid"
   chmod 600 "$LOG_DIR/cloudflared.pid"
   note 'Started the Cloudflare tunnel using the existing protected token.'
@@ -92,7 +98,7 @@ note 'Starting or reusing ComfyUI and the authenticated JoshBox wrapper.'
 if ! curl --fail --silent --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
   touch "$LOG_DIR/start_vast.log"
   chmod 600 "$LOG_DIR/start_vast.log"
-  nohup env START_VAST_BACKGROUND=1 bash "$ROOT/vast/start_vast.sh" >>"$LOG_DIR/start_vast.log" 2>&1 < /dev/null &
+  nohup bash "$ROOT/vast/start_vast.sh" >>"$LOG_DIR/start_vast.log" 2>&1 < /dev/null 9>&- &
   printf '%s\n' "$!" > "$LOG_DIR/start_vast.pid"
   chmod 600 "$LOG_DIR/start_vast.pid"
 fi
@@ -105,10 +111,7 @@ done
 start_tunnel
 
 if [[ -z "$PUBLIC_URL" ]]; then
-  note 'Local services are ready, but VIDEO_PROXY_URL is not set; skipping public tunnel verification.'
-  note 'Set VIDEO_PROXY_URL to the existing protected tunnel URL, then rerun this script.'
-  printf 'JoshBox Ready\n'
-  exit 0
+  die 'Local wrapper is healthy. Set VIDEO_PROXY_URL to the existing protected tunnel URL and rerun to verify readiness.'
 fi
 
 command -v curl >/dev/null || die 'curl is required for tunnel verification.'
@@ -119,9 +122,8 @@ until curl --fail --silent --show-error --max-time 5 "$PUBLIC_URL/healthz" >/dev
 done
 
 [[ ${#VIDEO_PROXY_TOKEN} -ge 32 ]] || die 'VIDEO_PROXY_TOKEN must be set to verify /api/capabilities.'
-until curl --fail --silent --show-error --max-time 5 \
-  -H "Authorization: Bearer $VIDEO_PROXY_TOKEN" "$PUBLIC_URL/api/capabilities" \
-  | "$APP_PYTHON" -c 'import json,sys; value=json.load(sys.stdin); assert value.get("connected") is True' >/dev/null; do
+export VIDEO_PROXY_TOKEN
+until "$APP_PYTHON" "$ROOT/vast/verify_capabilities.py" "$PUBLIC_URL"; do
   (( SECONDS < deadline )) || die "Capability check timed out or was not connected: $PUBLIC_URL/api/capabilities"
   sleep 2
 done

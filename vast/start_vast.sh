@@ -43,6 +43,13 @@ detect_comfy_port() {
   for port in 8188 8189 8190 8191 8288; do
     if port_healthy "$port" /system_stats; then printf '%s\n' "$port"; return 0; fi
   done
+  # Vast templates may use a different internal port. Probe actual listeners.
+  if command -v ss >/dev/null; then
+    while IFS= read -r port; do
+      [[ "$port" =~ ^[0-9]+$ ]] || continue
+      if port_healthy "$port" /system_stats; then printf '%s\n' "$port"; return 0; fi
+    done < <(ss -H -ltn | awk '{n=split($4,a,":"); print a[n]}' | sort -un)
+  fi
   printf '8188\n'
 }
 COMFY_PORT="$(detect_comfy_port)"
@@ -109,9 +116,9 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 
 stamp(){ TZ=UTC awk '{ print "[" strftime("%Y-%m-%dT%H:%M:%SZ") "] " $0; fflush(); }'; }
-stamp < "$pipe_dir/comfy" >> "$LOG_DIR/comfyui.log" & log_pids+=("$!")
 stamp < "$pipe_dir/app" >> "$LOG_DIR/app.log" & log_pids+=("$!")
 if ((comfy_owned)); then
+  stamp < "$pipe_dir/comfy" >> "$LOG_DIR/comfyui.log" & log_pids+=("$!")
   note "Starting existing ComfyUI on localhost:${COMFY_PORT}…"
   (cd "$COMFY_DIR"; exec setsid "$COMFY_PYTHON" -u main.py --listen 127.0.0.1 --port "$COMFY_PORT" --disable-auto-launch) > "$pipe_dir/comfy" 2>&1 & comfy_pid=$!
 fi
@@ -136,10 +143,6 @@ until curl --fail --silent --max-time 3 http://127.0.0.1:8080/healthz >/dev/null
   sleep 2
 done
 note "Ready. ComfyUI is local-only; expose port 8080 through your protected Vast proxy or SSH tunnel. Logs: $LOG_DIR"
-if [[ "${START_VAST_BACKGROUND:-0}" == 1 ]]; then
-  trap - EXIT
-  exit 0
-fi
 set +e
 wait_pids=("$app_pid")
 wait_pids+=("${log_pids[@]}")

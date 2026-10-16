@@ -25,20 +25,21 @@ download() {
       note "Already present: $(basename "$out")"
       return 0
     fi
-    note "Removing incomplete file: $(basename "$out")"
-    rm -f "$out"
+    note "Resuming incomplete file: $(basename "$out")"
+    [[ -f "$out.part" ]] || mv "$out" "$out.part"
   fi
 
+  local free_kb
+  free_kb="$(df -Pk "$MODEL_ROOT" | awk 'NR==2 {print $4}')"
+  (( free_kb >= 25000000 )) || die "At least ~25 GB free on the model volume is required for missing model downloads."
   note "Downloading $(basename "$out")..."
-  curl -L --fail --show-error --retry 8 --retry-delay 3 --continue-at -     -o "$out" "$url"
+  curl -L --fail --show-error --retry 8 --retry-delay 3 --continue-at -     -o "$out.part" "$url"
 
   local size
-  size="$(stat -c %s "$out" 2>/dev/null || echo 0)"
+  size="$(stat -c %s "$out.part" 2>/dev/null || echo 0)"
   (( size >= min_bytes )) || die "Download looks incomplete: $out"
+  mv -f "$out.part" "$out"
 }
-
-free_kb="$(df -Pk /workspace | awk 'NR==2 {print $4}')"
-(( free_kb >= 25000000 )) || die "At least ~25 GB free under /workspace is recommended."
 
 download   "$WAN_REPO/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"   "$MODEL_ROOT/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"   9000000000
 
