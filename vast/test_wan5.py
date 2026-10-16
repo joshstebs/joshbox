@@ -45,10 +45,10 @@ class Wan5Tests(unittest.TestCase):
             install(env)
             self.assertEqual(before, env.read_bytes())
 
-    def test_image_generation_fails_closed_before_submission(self):
+    def test_image_mapping_is_accepted_and_fast_stays_unconfigured(self):
         with patch.dict(os.environ, {'WORKFLOW_WAN5_QUALITY_PATH': str(ROOT / 'workflows/wan22-5b-quality.json'), 'WORKFLOW_WAN5_FAST_PATH': ''}):
-            with self.assertRaises(proxy.HTTPException) as error:
-                proxy.workflow(proxy.Settings(request_id='00000000-0000-0000-0000-000000000001', owner_id='fixture', prompt='A forest breeze', model='wan22_5b', frames=121, seed=42), 'uploaded.png')
-            self.assertIn('no starting-image connection', error.exception.detail)
+            graph = proxy.workflow(proxy.Settings(request_id='00000000-0000-0000-0000-000000000001', owner_id='fixture', prompt='A forest breeze', model='wan22_5b', frames=121, seed=42), 'uploaded.png')
+            self.assertEqual(graph['56']['inputs']['image'], 'uploaded.png')
+            self.assertEqual(graph['55']['inputs']['start_image'], ['56', 0])
             with self.assertRaises(proxy.HTTPException):
                 proxy.template_for('fast', 'wan22_5b')
