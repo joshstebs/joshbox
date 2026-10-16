@@ -42,13 +42,13 @@ python3 -m venv /workspace/joshbox/.venv
 
 3. Configure the runtime values from `vast/proxy.env.example` using private environment settings. Set a random `VIDEO_PROXY_TOKEN` of at least 32 characters, keep it out of shell history/source, and use the same token as a protected Site runtime secret. `COMFY_PYTHON` must be the Python environment that already runs the installed ComfyUI. Set `APP_PYTHON=/workspace/joshbox/.venv/bin/python`.
 4. Configure `WORKFLOW_MINIMAX_QUALITY_PATH` to a verified API-format workflow export. An existing `WORKFLOW_QUALITY_PATH` is also accepted for MiniMax. Fast uses a separate verified `WORKFLOW_MINIMAX_FAST_PATH` (or legacy `WORKFLOW_FAST_PATH`). The Fast graph must already contain the correct acceleration model/LoRA and sampling settings; the wrapper does not infer or install them.
-5. Start the entrypoint:
+5. Run the reusable one-command bootstrap:
 
 ```bash
-bash /workspace/joshbox/vast/start_vast.sh
+bash /workspace/joshbox/vast/bootstrap_all.sh
 ```
 
-The script checks NVIDIA availability, sets CUDA variables while preserving explicit overrides, refuses occupied service ports, starts ComfyUI with `--listen 127.0.0.1 --port 8188 --disable-auto-launch`, waits for `/system_stats`, and launches one Uvicorn worker on `0.0.0.0:8080`. Both process groups are stopped on SIGTERM/SIGINT or service exit. Timestamped logs append to `/workspace/logs/comfyui.log` and `/workspace/logs/app.log` with owner-only permissions.
+The bootstrap preserves the existing private environment, installs pinned wrapper dependencies, installs configured workflows, downloads only missing Wan files, detects and reuses a healthy ComfyUI port, starts the authenticated wrapper and existing Cloudflare tunnel without duplicates, and verifies `/healthz` plus authenticated `/api/capabilities` before printing `JoshBox Ready`. It is safe to rerun after a restart or GPU swap. `vast/start_vast.sh` remains available as the lower-level supervisor.
 
 6. Expose only the authenticated wrapper via the existing protected Vast proxy with trusted HTTPS. A local SSH tunnel can be used for local-only access but is not reachable by the hosted Site. Do not expose ComfyUI itself. The entrypoint will refuse to start a duplicate ComfyUI process; do not run it alongside another launcher on port 8188.
 7. Configure the existing Site's protected runtime `VIDEO_PROXY_URL` and `VIDEO_PROXY_TOKEN`. The URL is the wrapper base URL, with a supported path prefix if needed, without credentials/query secrets. The old `COMFY_*` settings remain available for the legacy adapter.
@@ -64,7 +64,7 @@ bash /workspace/joshbox/vast/setup_mobile.sh
 
 The script verifies the GPU and ComfyUI path, creates the wrapper virtual environment, installs pinned requirements, downloads or resumes the Wan 2.2 5B model set directly into the correct ComfyUI folders, and creates a private runtime env file with a random proxy token. It is idempotent and skips completed model files.
 
-See `vast/MOBILE_SETUP.md` for the short phone-oriented path. `vast/onstart.example.sh` is provided for reuse on instances that already contain the private repository checkout. A fresh instance still needs authenticated access to the private GitHub repo before those scripts can run.
+See `vast/MOBILE_SETUP.md` for the short phone-oriented path. `vast/onstart.example.sh` is provided for reuse on instances that already contain the private repository checkout and now executes the same idempotent bootstrap. A fresh instance still needs authenticated access to the private GitHub repo before those scripts can run.
 
 The bootstrap installs the uploaded Wan 2.2 5B Quality API graph and fills an empty Quality path automatically. The installed graph maps node 56 to the starting image and node 55 to that image latent. Fast is unconfigured. See `workflows/README.md` for exact mappings, provenance, and the remaining GPU verification.
 

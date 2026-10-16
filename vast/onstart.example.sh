@@ -14,14 +14,4 @@ else
   exit 2
 fi
 
-bash "$ROOT/vast/setup_mobile.sh"
-
-if [[ -n "${WORKFLOW_WAN5_QUALITY_PATH:-}" || -n "${WORKFLOW_WAN5_FAST_PATH:-}" ]]; then
-  note "Wan workflow configured; starting JoshBox."
-  set -a
-  [[ -f /workspace/joshbox.env ]] && source /workspace/joshbox.env
-  set +a
-  exec bash "$ROOT/vast/start_vast.sh"
-fi
-
-note "Models and wrapper are ready. Add a verified Wan 2.2 API workflow path before generation."
+exec bash "$ROOT/vast/bootstrap_all.sh"
