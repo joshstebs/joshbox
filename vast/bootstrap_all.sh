@@ -83,16 +83,14 @@ if [[ ! -x "$APP_PYTHON" ]]; then
 fi
 "$APP_PYTHON" -m pip install --disable-pip-version-check -q -r "$ROOT/vast/requirements.lock"
 
-note 'Installing configured workflows without replacing operator-selected paths.'
-"$APP_PYTHON" "$ROOT/vast/install_wan5_workflow.py" "$ENV_FILE"
+note 'Installing selected video models, node dependencies, and workflows.'
+export COMFY_DIR
+"$APP_PYTHON" "$ROOT/vast/model_setup.py" --env-file "$ENV_FILE" --sync
 set -a
 source "$ENV_FILE"
 set +a
 PUBLIC_URL="${VIDEO_PROXY_URL:-${PUBLIC_URL:-}}"
 validate_configured_workflows
-
-note 'Downloading only missing Wan 2.2 5B model files.'
-COMFY_DIR="$COMFY_DIR" bash "$ROOT/vast/bootstrap_wan22_5b.sh"
 
 note 'Starting or reusing ComfyUI and the authenticated JoshBox wrapper.'
 if ! curl --fail --silent --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then

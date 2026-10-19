@@ -21,6 +21,7 @@ import websockets
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from workflow_readiness import missing_requirements, fixed_controls
 
 DATA = Path(os.environ.get('JOSHBOX_DATA_DIR', '/workspace/joshbox-data'))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -35,7 +36,7 @@ if urlparse(COMFY).hostname not in ('127.0.0.1', 'localhost', '::1'):
     raise RuntimeError('The wrapper must connect to local ComfyUI.')
 TOKEN = os.environ.get('VIDEO_PROXY_TOKEN', '')
 tasks: dict[str, asyncio.Task] = {}
-MODELS = {'minimax_h3': 'MINIMAX', 'wan22_14b': 'WAN14', 'wan22_5b': 'WAN5', 'ltx23': 'LTX23', 'hunyuan15': 'HUNYUAN15'}
+MODELS = {'minimax_h3': 'MINIMAX', 'wan22_14b': 'WAN14', 'wan22_5b': 'WAN5', 'ltx13b': 'LTX13', 'ltx23': 'LTX23', 'hunyuan15': 'HUNYUAN15'}
 
 class Settings(BaseModel):
     request_id: UUID
@@ -104,9 +105,17 @@ def template_for(mode, model='minimax_h3'):
 
 def workflow(settings, image):
     graph = template_for(settings.mode, settings.model)
+    for key, value in fixed_controls(graph).items():
+        if getattr(settings, key) != value:
+            raise HTTPException(422, f'This workflow fixes {key} at {value}.')
     h3 = any(n['class_type'] == 'MiniMaxH3ImageToVideo' for n in graph.values())
     if h3 and (settings.fps != 24 or (settings.frames - 5) % 17): raise HTTPException(422, 'Native H3 requires 24 FPS and a 17k+5 frame count (124, 243, or 362 for about 5, 10, or 15 seconds).')
-    if settings.width % 32 or settings.height % 32: raise HTTPException(422, 'Dimensions must be multiples of 32.')
+    grid = 16 if settings.model == 'hunyuan15' else 32
+    if settings.width % grid or settings.height % grid: raise HTTPException(422, f'Dimensions must be multiples of {grid}.')
+    if settings.model in ('ltx13b', 'ltx23') and (settings.frames - 1) % 8:
+        raise HTTPException(422, 'LTX requires an 8k+1 frame count.')
+    if settings.model in ('wan22_14b','wan22_5b','hunyuan15') and (settings.frames - 1) % 4:
+        raise HTTPException(422, 'This video model requires a 4k+1 frame count.')
     values = {'$prompt': settings.prompt, '$negative': settings.negative, '$image': image, '$width': settings.width, '$height': settings.height, '$frames': settings.frames, '$fps': settings.fps, '$steps': settings.steps, '$seed': settings.seed, '$motion_bucket': settings.motion_bucket, '$motion_scale': settings.motion_scale}
     def replace(value):
         if isinstance(value, str) and value.startswith('$'):
@@ -225,13 +234,20 @@ async def capabilities():
     async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
         try: (await client.get(COMFY + '/system_stats')).raise_for_status()
         except Exception: raise HTTPException(503, 'ComfyUI is not responding.')
+        try:
+            response = await client.get(COMFY + '/object_info')
+            response.raise_for_status()
+            object_info = response.json()
+        except Exception:
+            object_info = {}
     profiles = {}
     for model in MODELS:
         modes = {}
         for mode in ('quality', 'fast'):
             try:
                 graph = template_for(mode, model); text = json.dumps(graph)
-                modes[mode] = {'ready': True, 'controls': [x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('$'+x) in text], 'h3': any(n['class_type']=='MiniMaxH3ImageToVideo' for n in graph.values())}
+                missing = missing_requirements(graph, object_info)
+                modes[mode] = {'ready': not missing, 'missing': missing, 'fixed': fixed_controls(graph), 'controls': [x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('$'+x) in text], 'h3': any(n['class_type']=='MiniMaxH3ImageToVideo' for n in graph.values())}
             except HTTPException: modes[mode] = {'ready': False, 'controls': []}
         profiles[model] = modes
     return {'connected': True, 'profiles': profiles, 'modes': profiles['minimax_h3']}

@@ -56,6 +56,8 @@ The bootstrap preserves the existing private environment, installs pinned wrappe
 
 ## Mobile-first one-command setup
 
+For the complete reusable video setup, use `bash /workspace/joshbox/vast/bootstrap_all.sh`. It now includes MiniMax H3, LTX-Video 13B distilled FP8, HunyuanVideo 1.5 720p CFG-distilled FP8, and Wan 2.2 14B alongside the existing Wan 5B workflow. See [the model pack guide](vast/MODELS.md) for persistent storage, model selection, exact dependencies, supported LoRAs, and required GPU verification. `setup_mobile.sh` remains the smaller Wan 5B-only installer.
+
 After the private repository has been cloned to `/workspace/joshbox`, run:
 
 ```bash

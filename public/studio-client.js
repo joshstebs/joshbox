@@ -1,16 +1,9 @@
 import {consumeSSE,renderStatusLabel} from './sse.js';
 import {extractLastFrame} from './last-frame.js';
 import {suggestedPrompts,appendSuggestion} from './prompt-suggestions.js';
+import {presets,dimensionsFor,stepsForMode} from './video-presets.js';
 
 const $=id=>document.getElementById(id);
-const presets=[
-  {id:'minimax',model:'minimax_h3',name:'MiniMax H3',detail:'Image to video · native audio',mode:'quality',frames:124,fps:24,steps:20,fastSteps:8},
-  {id:'wan14fast',model:'wan22_14b',name:'ϟ Wan 2.2 14B',detail:'4-step I2V LoRA profile',mode:'fast',frames:81,fps:16,steps:4,fastSteps:4},
-  {id:'wan14quality',model:'wan22_14b',name:'✦ Wan 2.2 14B',detail:'Standard quality I2V profile',mode:'quality',frames:81,fps:16,steps:20,fastSteps:4},
-  {id:'wan5',model:'wan22_5b',name:'Wan 2.2 5B',detail:'TI2V · smaller model',mode:'quality',frames:81,fps:16,steps:20,fastSteps:8},
-  {id:'ltx',model:'ltx23',name:'LTX 2.3',detail:'I2V · distilled profile',mode:'fast',frames:121,fps:24,steps:8,fastSteps:8},
-  {id:'hunyuan',model:'hunyuan15',name:'HunyuanVideo 1.5',detail:'Cinematic I2V profile',mode:'quality',frames:81,fps:24,steps:30,fastSteps:8}
-];
 const state={preset:presets[0],mode:'quality',capabilities:null,busy:false,unresolved:false,file:null,imageUrl:null,extension:null,current:null,jobs:[],requestId:null,pollTimer:null,logs:[]};
 function notice(text,error=false){const box=$(error?'error':'notice');box.textContent=text;box.hidden=!text;}
 function log(message){state.logs.push('['+new Date().toLocaleTimeString()+'] '+message);state.logs=state.logs.slice(-150);$('executionLog').textContent=state.logs.join('\n');}
@@ -18,11 +11,13 @@ async function api(url,options={}){const response=await fetch(url,{...options,ca
 function profile(mode=state.mode){return state.capabilities?.profiles?.[state.preset.model]?.[mode];}
 function applyCapabilities(){
   const info=profile(),controls=info?.controls||[];
+  for(const key of ['fps','steps'])if(Number.isFinite(info?.fixed?.[key])){$(key).value=info.fixed[key];$(key+'Slider').value=info.fixed[key];}
   const connected=!!state.capabilities?.connected;
   $('generate').disabled=state.busy||state.unresolved||!connected||!info?.ready;
   $('fastMode').disabled=state.busy||(connected&&!profile('fast')?.ready);
   $('qualityMode').disabled=state.busy||(connected&&!profile('quality')?.ready);
   $('boost').disabled=state.busy||!connected||!profile('fast')?.ready;
+  $('boost').closest('label').hidden=!connected||!profile('fast')?.ready||!profile('quality')?.ready;
   $('boostHint').textContent=profile('fast')?.ready?'Use this model’s configured Fast workflow.':'Requires a configured Fast workflow. No model is installed by this switch.';
   for(const [id,token] of [['frames','frames'],['fps','fps'],['steps','steps'],['motionBucket','motion_bucket'],['motionScale','motion_scale']]){
     const enabled=(!connected&&!id.startsWith('motion'))||controls.includes(token);
@@ -30,6 +25,7 @@ function applyCapabilities(){
     $(id).disabled=state.busy||!enabled||fixedH3;$(id+'Slider').disabled=$(id).disabled;
   }
   $('aspectRatio').disabled=state.busy||(connected&&(!controls.includes('width')||!controls.includes('height')));
+  for(const option of $('aspectRatio').options){const size=dimensionsFor(state.preset.model,option.value);const label={landscape:'16:9 · Landscape',portrait:'9:16 · Portrait',square:'1:1 · Square'}[option.value];option.textContent=label+' · '+size[0]+' × '+size[1];}
   $('negativePrompt').disabled=state.busy||(connected&&!controls.includes('negative'));
   $('seed').disabled=state.busy||$('randomSeed').checked||(connected&&!controls.includes('seed'));
   $('sourceImage').disabled=state.busy;$('positivePrompt').disabled=state.busy;
@@ -40,7 +36,7 @@ function applyCapabilities(){
   $('selectedModel').textContent=state.preset.name.replace(/^[ϟ✦] /,'');
   $('qualityMode').classList.toggle('selected',state.mode==='quality');$('qualityMode').setAttribute('aria-pressed',String(state.mode==='quality'));
   $('fastMode').classList.toggle('selected',state.mode==='fast');$('fastMode').setAttribute('aria-pressed',String(state.mode==='fast'));
-  $('frames').step=state.preset.model==='minimax_h3'?'17':state.preset.model==='ltx23'?'8':'4';
+  $('frames').step=state.preset.model==='minimax_h3'?'17':['ltx13b','ltx23'].includes(state.preset.model)?'8':'4';
   $('frames').min=state.preset.model==='minimax_h3'?'5':'1';
   $('framesSlider').step=$('frames').step;$('framesSlider').min=$('frames').min;$('framesSlider').value=$('frames').value;
   $('controlHint').textContent=state.preset.model==='minimax_h3'?'Native H3: 24 FPS, 17k+5 frame grid. Motion controls need an explicit workflow mapping.':'These are draft presets. The installed workflow determines supported controls; motion controls stay disabled unless mapped.';
@@ -78,7 +74,7 @@ async function generate(event){
   if(!state.file){notice('Choose a starting image.',true);return;}
   if($('positivePrompt').value.trim().length<8){notice('Describe the scene in at least 8 characters.',true);$('positivePrompt').focus();return;}
   if(!$('adultOnly').checked){notice('Confirm that any people are fictional adults.',true);return;}
-  const dimensions={landscape:[1024,576],portrait:[576,1024],square:[768,768]}[$('aspectRatio').value];
+  const dimensions=dimensionsFor(state.preset.model,$('aspectRatio').value);
   const seed=$('randomSeed').checked?crypto.getRandomValues(new Uint32Array(1))[0]%2147483648:Number($('seed').value);$('seed').value=String(seed);
   const settings={request_id:state.requestId||crypto.randomUUID(),model:state.preset.model,mode:state.mode,prompt:$('positivePrompt').value.trim(),negative:$('negativePrompt').value,width:dimensions[0],height:dimensions[1],frames:Number($('frames').value),fps:Number($('fps').value),steps:Number($('steps').value),motion_bucket:Number($('motionBucket').value),motion_scale:Number($('motionScale').value),seed,extend_job_id:state.extension?.job.id,extend_index:state.extension?.index};
   for(const [id,min,max] of [['frames',1,362],['fps',1,60],['steps',1,100],['motion_bucket',0,255],['motion_scale',0,10],['seed',0,2147483647]])if(!Number.isFinite(settings[id])||settings[id]<min||settings[id]>max||(id!=='motion_scale'&&!Number.isInteger(settings[id]))){notice('Check the '+id.replace('_',' ')+' value.',true);return;}
@@ -113,9 +109,9 @@ $('sourceImage').addEventListener('change',()=>{try{if($('sourceImage').files[0]
 $('removeImage').onclick=()=>{if(state.imageUrl)URL.revokeObjectURL(state.imageUrl);state.file=null;state.extension=null;state.imageUrl=null;$('imagePreview').hidden=true;$('uploadCopy').hidden=false;$('removeImage').hidden=true;$('extensionNote').hidden=true;$('sourceImage').value='';};
 for(const type of ['dragenter','dragover'])$('uploadZone').addEventListener(type,e=>{e.preventDefault();if(!state.busy)$('uploadZone').classList.add('dragging');});
 for(const type of ['dragleave','drop'])$('uploadZone').addEventListener(type,e=>{e.preventDefault();$('uploadZone').classList.remove('dragging');if(type==='drop'&&!state.busy)try{setImage(e.dataTransfer.files[0]);}catch(error){notice(error.message,true);}});
-$('qualityMode').onclick=()=>{state.mode='quality';$('boost').checked=false;$('steps').value=state.preset.model==='hunyuan15'?30:20;$('stepsSlider').value=$('steps').value;applyCapabilities();};
+$('qualityMode').onclick=()=>{state.mode='quality';$('boost').checked=false;$('steps').value=stepsForMode(state.preset,state.mode);$('stepsSlider').value=$('steps').value;applyCapabilities();};
 $('fastMode').onclick=()=>{state.mode='fast';$('boost').checked=false;$('steps').value=state.preset.fastSteps;$('stepsSlider').value=$('steps').value;applyCapabilities();};
-$('boost').onchange=()=>{state.mode=$('boost').checked?'fast':profile('quality')?.ready?'quality':'fast';$('steps').value=state.mode==='fast'?state.preset.fastSteps:state.preset.model==='hunyuan15'?30:20;$('stepsSlider').value=$('steps').value;applyCapabilities();};
+$('boost').onchange=()=>{state.mode=$('boost').checked?'fast':profile('quality')?.ready?'quality':'fast';$('steps').value=stepsForMode(state.preset,state.mode);$('stepsSlider').value=$('steps').value;applyCapabilities();};
 $('randomSeed').onchange=applyCapabilities;$('generationForm').addEventListener('submit',generate);
 $('loopVideo').onchange=()=>{$('videoPlayer').loop=$('loopVideo').checked;};
 $('fullscreen').onclick=()=>{$('videoPlayer').requestFullscreen?.().catch(()=>notice('Fullscreen is unavailable on this device. Use the player controls.'));};
