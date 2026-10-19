@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import httpx
-from model_setup import CATALOG, ROOT, download, install_workflows, matches, selected_models
+from model_setup import CATALOG, ROOT, download, install_workflows, matches, selected_models, selected_installed_models
 from workflow_readiness import fixed_controls, missing_requirements
 from test_proxy import proxy
 
@@ -28,6 +28,16 @@ class ModelSetupTests(unittest.TestCase):
         self.assertEqual(selected_models('minimax_h3,ltx13b,minimax_h3'), ['minimax_h3','ltx13b'])
         with self.assertRaises(ValueError): selected_models('unsupported')
 
+    def test_automatic_selection_only_includes_complete_local_catalog_packs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            comfy = Path(folder)
+            self.assertEqual(selected_installed_models('', comfy), [])
+            with patch('model_setup.CATALOG', {'fixture': {'name':'fixture','assets':[{'path':'diffusion_models/model.safetensors','size':3}]}}):
+                path = comfy / 'models/diffusion_models/model.safetensors'
+                path.parent.mkdir(parents=True)
+                path.write_bytes(b'abc')
+                self.assertEqual(selected_installed_models('', comfy), ['fixture'])
+                self.assertEqual(selected_installed_models('fixture', comfy), ['fixture'])
     def test_complete_download_rerun_never_uses_network_and_rechecks_corruption(self):
         content = b'complete-model-fixture'
         asset = self.asset(content)

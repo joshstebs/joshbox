@@ -4,10 +4,12 @@ set -Eeuo pipefail
 umask 077
 
 ROOT="${JOSHBOX_ROOT:-/workspace/joshbox}"
-COMFY_DIR="${COMFY_DIR:-/workspace/ComfyUI}"
+COMFY_DIR="${COMFY_DIR:-/opt/ComfyUI}"
 APP_DIR="${APP_DIR:-$ROOT/vast}"
 ENV_FILE="${JOSHBOX_ENV_FILE:-/workspace/joshbox.env}"
 APP_PYTHON="${APP_PYTHON:-$ROOT/.venv/bin/python}"
+COMFY_PYTHON="${COMFY_PYTHON:-}"
+JOSHBOX_MODELS="${JOSHBOX_MODELS:-}"
 PUBLIC_URL="${VIDEO_PROXY_URL:-${PUBLIC_URL:-}}"
 VIDEO_PROXY_TOKEN="${VIDEO_PROXY_TOKEN-}"
 LOG_DIR="${LOG_DIR:-/workspace/logs}"
@@ -37,9 +39,10 @@ VIDEO_PROXY_TOKEN=$token
 VIDEO_PROXY_URL=${VIDEO_PROXY_URL:-}
 COMFY_DIR=$COMFY_DIR
 APP_DIR=$APP_DIR
-COMFY_PYTHON=python3
+COMFY_PYTHON=
 APP_PYTHON=$APP_PYTHON
 JOSHBOX_DATA_DIR=/workspace/joshbox-data
+JOSHBOX_MODELS=
 WORKFLOW_WAN5_QUALITY_PATH=
 WORKFLOW_WAN5_FAST_PATH=
 EOF
@@ -49,10 +52,66 @@ EOF
   source "$ENV_FILE"
   set +a
 fi
+ENV_COMFY_DIR="${COMFY_DIR:-}"
+ENV_APP_DIR="${APP_DIR:-}"
+ENV_APP_PYTHON="${APP_PYTHON:-}"
+ENV_COMFY_PYTHON="${COMFY_PYTHON:-}"
+ENV_JOSHBOX_MODELS="${JOSHBOX_MODELS:-}"
+COMFY_DIR="${COMFY_DIR:-/opt/ComfyUI}"
+APP_DIR="${APP_DIR:-$ROOT/vast}"
+APP_PYTHON="${APP_PYTHON:-$ROOT/.venv/bin/python}"
+COMFY_PYTHON="${COMFY_PYTHON:-}"
+JOSHBOX_MODELS="${JOSHBOX_MODELS:-}"
 PUBLIC_URL="${VIDEO_PROXY_URL:-${PUBLIC_URL:-}}"
 CLOUDFLARED_TUNNEL_TOKEN="${CLOUDFLARED_TUNNEL_TOKEN:-${TUNNEL_TOKEN:-}}"
 [[ "${HEALTH_TIMEOUT:-180}" =~ ^[1-9][0-9]*$ ]] || die 'HEALTH_TIMEOUT must be a positive integer.'
 [[ -d "$COMFY_DIR" ]] || die "ComfyUI not found at $COMFY_DIR."
+[[ -f "$COMFY_DIR/main.py" ]] || die "ComfyUI main.py not found in $COMFY_DIR. Set COMFY_DIR to the existing ComfyUI directory."
+if [[ -z "$COMFY_PYTHON" ]]; then
+  for candidate in "$COMFY_DIR/.venv/bin/python" "$COMFY_DIR/venv/bin/python"; do
+    if [[ -x "$candidate" ]]; then COMFY_PYTHON="$candidate"; break; fi
+  done
+  COMFY_PYTHON="${COMFY_PYTHON:-python3}"
+fi
+if [[ -z "$ENV_COMFY_DIR" ]]; then
+  sed -i "s|^COMFY_DIR=.*|COMFY_DIR=$COMFY_DIR|" "$ENV_FILE"
+fi
+if [[ -z "$ENV_APP_DIR" ]]; then
+  sed -i "s|^APP_DIR=.*|APP_DIR=$APP_DIR|" "$ENV_FILE"
+fi
+if [[ -z "$ENV_APP_PYTHON" ]]; then
+  sed -i "s|^APP_PYTHON=.*|APP_PYTHON=$APP_PYTHON|" "$ENV_FILE"
+fi
+if [[ -z "$ENV_JOSHBOX_MODELS" ]]; then
+  JOSHBOX_MODELS="$("$APP_PYTHON" - "$COMFY_DIR" "$ROOT/vast/model_catalog.json" <<'PY'
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1])/'models'
+catalog=json.loads(Path(sys.argv[2]).read_text())['models']
+found=[]
+for name,model in catalog.items():
+    if all((root/a['path']).is_file() and (root/a['path']).stat().st_size==a['size'] for a in model['assets']): found.append(name)
+print(','.join(found))
+PY
+)"
+fi
+if [[ -n "$JOSHBOX_MODELS" ]]; then
+  if grep -q '^JOSHBOX_MODELS=' "$ENV_FILE"; then
+    sed -i "s|^JOSHBOX_MODELS=.*|JOSHBOX_MODELS=$JOSHBOX_MODELS|" "$ENV_FILE"
+  else
+    printf 'JOSHBOX_MODELS=%s\n' "$JOSHBOX_MODELS" >> "$ENV_FILE"
+  fi
+fi
+if [[ -z "$JOSHBOX_MODELS" ]]; then
+  die 'No complete bundled model packs detected. Existing GGUF-only installs require a compatible API workflow; refusing model downloads.'
+fi
+note "Using selected local model packs: $JOSHBOX_MODELS"
+if grep -q '^COMFY_PYTHON=' "$ENV_FILE"; then
+  sed -i "s|^COMFY_PYTHON=.*|COMFY_PYTHON=$COMFY_PYTHON|" "$ENV_FILE"
+else
+  printf 'COMFY_PYTHON=%s\n' "$COMFY_PYTHON" >> "$ENV_FILE"
+fi
+export COMFY_DIR COMFY_PYTHON JOSHBOX_MODELS
 
 mkdir -p "$LOG_DIR"
 chmod 700 "$LOG_DIR"
@@ -84,7 +143,6 @@ fi
 "$APP_PYTHON" -m pip install --disable-pip-version-check -q -r "$ROOT/vast/requirements.lock"
 
 note 'Installing selected video models, node dependencies, and workflows.'
-export COMFY_DIR
 "$APP_PYTHON" "$ROOT/vast/model_setup.py" --env-file "$ENV_FILE" --sync
 set -a
 source "$ENV_FILE"

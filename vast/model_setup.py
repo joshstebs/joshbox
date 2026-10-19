@@ -129,6 +129,19 @@ def install_workflows(env_file, names):
         temporary.replace(env_file)
 
 
+def selected_installed_models(value, comfy):
+    """Use complete local model packs only; never trigger a bulk download by default."""
+    if value:
+        return selected_models(value)
+    installed = []
+    for name, definition in CATALOG.items():
+        if all((comfy / 'models' / asset['path']).is_file()
+               and (comfy / 'models' / asset['path']).stat().st_size == asset['size']
+               for asset in definition['assets']):
+            installed.append(name)
+    return installed
+
+
 def install_nodes(comfy, names, python):
     nodes = {n['name']: n for name in names for n in CATALOG[name].get('custom_nodes', [])}
     for name, node in nodes.items():
@@ -166,14 +179,16 @@ def sync_models(comfy, model_root, names):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--models', default=os.environ.get('JOSHBOX_MODELS', ','.join(CATALOG)))
+    parser.add_argument('--models', default=os.environ.get('JOSHBOX_MODELS', ''))
     parser.add_argument('--env-file', required=True)
     parser.add_argument('--sync', action='store_true')
     args = parser.parse_args()
-    names = selected_models(args.models)
+    comfy = Path(os.environ.get('COMFY_DIR', '/opt/ComfyUI'))
+    names = selected_installed_models(args.models, comfy)
+    if not names:
+        raise ValueError('No complete bundled model packs were found locally. Set JOSHBOX_MODELS to install selected packs.')
     install_workflows(args.env_file, names)
     if args.sync:
-        comfy = Path(os.environ.get('COMFY_DIR', '/workspace/ComfyUI'))
         model_root = Path(os.environ.get('JOSHBOX_MODEL_ROOT', str(comfy / 'models')))
         install_nodes(comfy, names, os.environ.get('COMFY_PYTHON', 'python3'))
         sync_models(comfy, model_root, names)

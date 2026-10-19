@@ -20,10 +20,14 @@ After updating the repository checkout on the already rented instance:
 bash /workspace/joshbox/vast/bootstrap_all.sh
 ```
 
-The default selection is all five packs. Downloads total well over 100 GB; use a suitably sized persistent model volume. To install a subset, set this in `/workspace/joshbox.env` before running the bootstrap:
+By default, the bootstrap detects complete catalog packs already present in ComfyUI and selects only those; it does not download other families. To install packs explicitly, set `JOSHBOX_MODELS` in `/workspace/joshbox.env`. The complete catalog totals well over 100 GB; use a suitably sized persistent model volume.
+
+For the instance listing in this setup, keep its existing GGUF files and model folders intact. The current Wan 14B bundled graph uses FP8 safetensors dual experts and does not load GGUF through ComfyUI-GGUF, so Wan 14B remains unavailable until a matching GGUF graph is provided. The existing Wan 5B graph can be selected only if all three expected 5B/UMT5/Wan VAE files are present; the instance notes alone do not confirm that pack.
+
+Example to add only known local model packs; adjust after checking the files:
 
 ```bash
-JOSHBOX_MODELS=wan22_5b,minimax_h3,ltx13b,hunyuan15,wan22_14b
+JOSHBOX_MODELS=wan22_5b
 JOSHBOX_MODEL_ROOT=/workspace/persistent/joshbox-models
 ```
 
