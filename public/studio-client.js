@@ -1,6 +1,7 @@
 import {consumeSSE,renderStatusLabel} from './sse.js';
 import {extractLastFrame} from './last-frame.js';
 import {suggestedPrompts,appendSuggestion} from './prompt-suggestions.js';
+import {buildVideoPrompt} from './prompt-builder.js';
 import {presets,dimensionsFor,stepsForMode} from './video-presets.js';
 
 const $=id=>document.getElementById(id);
@@ -29,6 +30,7 @@ function applyCapabilities(){
   $('negativePrompt').disabled=state.busy||(connected&&!controls.includes('negative'));
   $('seed').disabled=state.busy||$('randomSeed').checked||(connected&&!controls.includes('seed'));
   $('sourceImage').disabled=state.busy;$('positivePrompt').disabled=state.busy;
+  $('builderApply').disabled=state.busy||!buildVideoPrompt(builderValues());
   $('randomSeed').disabled=state.busy||(connected&&!controls.includes('seed'));$('adultOnly').disabled=state.busy;
   $('generateLabel').textContent=state.busy?'Rendering…':state.unresolved?'Check existing generation':'Generate Video';
   $('renderSpinner').hidden=!state.busy;
@@ -47,6 +49,13 @@ function renderPicks(){
   $('quickPicks').replaceChildren(...presets.map(p=>{const button=document.createElement('button');button.type='button';button.className='quick-pick'+(state.preset.id===p.id?' selected':'');button.setAttribute('aria-pressed',String(state.preset.id===p.id));button.disabled=state.busy;const title=document.createElement('strong');title.textContent=p.name;const detail=document.createElement('small');detail.textContent=p.detail;const badge=document.createElement('span');const available=state.capabilities?.profiles?.[p.model]?.[p.mode]?.ready;badge.className='preset-state'+(available?' available':'');badge.textContent=available?'WORKFLOW CONFIGURED':'SETUP NEEDED';button.append(title,detail,badge);button.addEventListener('click',()=>{state.preset=p;state.mode=p.mode;$('boost').checked=false;for(const id of ['frames','fps','steps']){$(id).value=p[id];$(id+'Slider').value=p[id];}applyCapabilities();notice(available?'Preset loaded. Review your image and prompt.':'Draft preset loaded. This model is not connected; no installation or generation was started.');});return button;}));
 }
 function updateSuggestions(){const prompt=$('positivePrompt').value;$('promptCount').textContent=prompt.length+' / 3000';const choices=prompt?suggestedPrompts(prompt,'video'):['Slow camera push','Gentle natural movement','Pan across the scene'];$('suggestions').replaceChildren(...choices.map(text=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.disabled=state.busy||appendSuggestion(prompt,text).length>3000;button.onclick=()=>{$('positivePrompt').value=appendSuggestion($('positivePrompt').value,text);updateSuggestions();};return button;}));}
+const builderFields=['Subject','Action','Setting','Camera','Lighting','Style','Pace','Details'];
+function builderValues(){return Object.fromEntries(builderFields.map(key=>[key.toLowerCase(),$('builder'+key).value]));}
+function updateBuilder(){const prompt=buildVideoPrompt(builderValues());$('builderPreview').textContent=prompt||'Add a subject and an action to start.';$('builderCount').textContent=prompt.length+' / 3000';$('builderCopy').disabled=!prompt;$('builderApply').disabled=!prompt||state.busy;return prompt;}
+for(const key of builderFields)$('builder'+key).addEventListener('input',updateBuilder);
+$('builderClear').onclick=()=>{for(const key of builderFields)$('builder'+key).value='';updateBuilder();};
+$('builderApply').onclick=()=>{const prompt=updateBuilder();if(!prompt||state.busy)return;$('positivePrompt').value=prompt;updateSuggestions();$('positivePrompt').focus();notice('Prompt added. Review it before generating.');};
+$('builderCopy').onclick=async()=>{const prompt=updateBuilder();if(!prompt)return;try{await navigator.clipboard.writeText(prompt);notice('Prompt copied.');}catch{notice('Clipboard permission unavailable. Select the preview text to copy it.',true);}};
 function setImage(file,extension=null){if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>12*1024**2)throw new Error('Use PNG, JPG, or WebP under 12 MB.');if(state.imageUrl)URL.revokeObjectURL(state.imageUrl);state.file=file;state.extension=extension;state.imageUrl=URL.createObjectURL(file);$('imagePreview').src=state.imageUrl;$('imagePreview').hidden=false;$('uploadCopy').hidden=true;$('removeImage').hidden=false;$('extensionNote').hidden=!extension;$('extensionNote').textContent=extension?'Starting from the previous video’s last frame. Describe the next scene.':'';}
 async function checkConnection(){try{state.capabilities=await api('/api/connection');$('connectionBadge').classList.add('connected');$('connectionBadge').lastChild.textContent=' GPU responding';notice('Proxy is responding. Workflow configuration and a successful render are separate checks.');}catch(e){state.capabilities=null;$('connectionBadge').classList.remove('connected');$('connectionBadge').lastChild.textContent=' GPU not connected';notice(e.message);}finally{applyCapabilities();}}
 function progress(data,archived=false){
