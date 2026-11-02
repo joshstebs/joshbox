@@ -54,6 +54,10 @@ The bootstrap preserves the existing private environment, installs pinned wrappe
 7. Configure the existing Site's protected runtime `VIDEO_PROXY_URL` and `VIDEO_PROXY_TOKEN`. The URL is the wrapper base URL, with a supported path prefix if needed, without credentials/query secrets. The old `COMFY_*` settings remain available for the legacy adapter.
 8. Check the GPU connection from the dashboard, generate a short clip, verify real step/node events, wait for private-gallery saving, download the MP4, and test Extend Video. Confirm downloads still work after stopping the GPU.
 
+## Using JoshBox from a phone with GCP or Vast
+
+The mobile studio has bottom navigation, a Google Cloud / Vast.ai / Current GPU selector, and per-job GPU affinity. Named profiles require protected server-side `VIDEO_PROXY_GCP_{URL,TOKEN}` or `VIDEO_PROXY_VAST_{URL,TOKEN}` settings. The selector never rents or wakes a GPU. See [the mobile multi-GPU setup guide](docs/MOBILE_GPU_PROVIDERS.md) for the exact phone workflow, Google Cloud setup, required Site authentication/storage, and privacy checks.
+
 ## Mobile-first one-command setup
 
 For the complete reusable video setup, use `bash /workspace/joshbox/vast/bootstrap_all.sh`. It now includes MiniMax H3, LTX-Video 13B distilled FP8, HunyuanVideo 1.5 720p CFG-distilled FP8, and Wan 2.2 14B alongside the existing Wan 5B workflow. See [the model pack guide](vast/MODELS.md) for persistent storage, model selection, exact dependencies, supported LoRAs, and required GPU verification. `setup_mobile.sh` remains the smaller Wan 5B-only installer.
