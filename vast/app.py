@@ -255,7 +255,9 @@ async def capabilities():
             try:
                 graph = template_for(mode, model); text = json.dumps(graph)
                 missing = missing_requirements(graph, object_info)
-                modes[mode] = {'ready': not missing, 'missing': missing, 'fixed': fixed_controls(graph), 'controls': [x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('
+                controls = [key for key in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if ('"$' + key + '"') in text]
+                modes[mode] = {'ready': not missing, 'missing': missing, 'fixed': fixed_controls(graph), 'controls': controls, 'h3': any(n['class_type']=='MiniMaxH3ImageToVideo' for n in graph.values())}
+                workflow_options.append({'id':'default','model':model,'mode':mode,'name':'Default '+mode.title(),'ready':not missing,'loras':usable_loras(catalog,model,graph,object_info)})
             except HTTPException: modes[mode] = {'ready': False, 'controls': []}
         profiles[model] = modes
     for entry in catalog['workflows']:
@@ -269,7 +271,8 @@ async def capabilities():
                     chosen=next(l for l in catalog['loras'] if l['id']==available_loras[0]['id'])
                     sample=json.loads(json.dumps(graph).replace('"$lora_name"',json.dumps(chosen['filename'])).replace('"$lora_strength"','1.0'))
                     missing=missing_requirements(sample,object_info)
-            workflow_options.append({'id':entry['id'],'name':entry['name'],'model':entry['model'],'mode':entry['mode'],'ready':not missing,'missing':missing,'loras':available_loras,'fixed':fixed_controls(graph),'controls':[x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('
+            controls=[key for key in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if ('"$' + key + '"') in json.dumps(graph)]
+            workflow_options.append({'id':entry['id'],'name':entry['name'],'model':entry['model'],'mode':entry['mode'],'ready':not missing,'missing':missing,'loras':available_loras,'fixed':fixed_controls(graph),'controls':controls})
         except HTTPException as exc:
             workflow_options.append({'id':entry['id'],'name':entry['name'],'model':entry['model'],'mode':entry['mode'],'ready':False,'missing':[str(exc.detail)],'loras':[]})
     return {'connected': True, 'profiles': profiles, 'workflows':workflow_options, 'modes': profiles['minimax_h3']}
