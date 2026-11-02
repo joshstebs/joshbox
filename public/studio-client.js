@@ -197,9 +197,7 @@ async function checkInstance(){
     state.instanceStatus=result;
     $('instanceStatus').textContent=result.configured?result.status:'Not configured';
     $('instanceDescription').textContent=result.configured?result.name+' · '+providerLabels[provider]:'Add this instance’s ID and private API credentials in the JoshBox server configuration.';
-    $('instanceCost').textContent=result.hourlyUsd!=null?'Reported compute rate: 
-updateSuggestions();applyCapabilities();void checkConnection();void refreshGallery();
-+result.hourlyUsd.toFixed(3)+'/hr USD. Storage charges may continue while stopped.':'Starting an instance may incur charges. Stopped instances can still incur storage costs.';
+    $('instanceCost').textContent=result.hourlyUsd!=null?'Reported compute rate: USD '+result.hourlyUsd.toFixed(3)+'/hr. Storage charges may continue while stopped.':'Starting an instance may incur charges. Stopped instances can still incur storage costs.';
     instanceControls(result);
   }catch(e){
     if(provider!==state.provider)return;
