@@ -64,7 +64,8 @@ export async function gpuStatus(provider:ManagedProvider):Promise<GpuStatus>{
   const data=response.instances??response.instance??response;
   const instance=Array.isArray(data)?data[0]:data as Record<string,unknown>;
   if(!instance||typeof instance!=='object')throw new ApiError('Vast.ai returned no instance details.',502);
-  const rate=Number(instance.dph_total);
+  const rawRate=instance.dph_total;
+  const rate=(typeof rawRate==='number'||(typeof rawRate==='string'&&rawRate.trim().length>0))?Number(rawRate):NaN;
   return {provider,configured:true,name:String(instance.label||'Vast.ai GPU'),status:String(instance.actual_status||instance.status||'unknown'),hourlyUsd:Number.isFinite(rate)&&rate>=0?rate:null};
 }
 export async function gpuChange(provider:ManagedProvider,action:InstanceAction){
