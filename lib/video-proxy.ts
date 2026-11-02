@@ -1,22 +1,12 @@
 import {endpoint} from './engine.mts';
 import {bindings,ApiError} from './server';
-
-export const videoProviders=['default','gcp','vast'] as const;
-export type VideoProvider=(typeof videoProviders)[number];
+import {videoProviders,parseVideoProviderValue,type VideoProvider} from './video-provider.mts';
+export {videoProviders,videoJobRemoteId,videoJobProvider} from './video-provider.mts';
+export type {VideoProvider};
 
 export function parseVideoProvider(value:unknown):VideoProvider{
-  if(value===undefined||value===null||value==='')return 'default';
-  if(value==='default'||value==='gcp'||value==='vast')return value;
-  throw new ApiError('Choose a supported GPU provider.',400);
-}
-
-export function videoJobRemoteId(provider:VideoProvider,id:string){
-  return provider==='default'?'proxy:'+id:'proxy:'+provider+':'+id;
-}
-
-export function videoJobProvider(remoteId:string|null,id:string):VideoProvider|null{
-  for(const provider of videoProviders)if(remoteId===videoJobRemoteId(provider,id))return provider;
-  return null;
+  try{return parseVideoProviderValue(value);}
+  catch{throw new ApiError('Choose a supported GPU provider.',400);}
 }
 
 function providerConfig(provider:VideoProvider){
