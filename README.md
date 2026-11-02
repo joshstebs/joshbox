@@ -54,6 +54,10 @@ The bootstrap preserves the existing private environment, installs pinned wrappe
 7. Configure the existing Site's protected runtime `VIDEO_PROXY_URL` and `VIDEO_PROXY_TOKEN`. The URL is the wrapper base URL, with a supported path prefix if needed, without credentials/query secrets. The old `COMFY_*` settings remain available for the legacy adapter.
 8. Check the GPU connection from the dashboard, generate a short clip, verify real step/node events, wait for private-gallery saving, download the MP4, and test Extend Video. Confirm downloads still work after stopping the GPU.
 
+## Power controls and creative workflow library
+
+The phone studio can request **start / stop** for one privately configured Google Cloud VM and one existing Vast.ai instance, with explicit confirmation and a backend guard against stopping unfinished or archiving jobs. It never destroys or rents machines. Each GPU wrapper can read an optional operator-managed JSON catalogue of trusted API workflow variants and model-compatible installed LoRAs, with an explicit supported loader slot for adjustable LoRA strength. See [GPU power and workflows](docs/GPU_POWER_WORKFLOWS.md). These controls require a working authenticated Site, provider API credentials, and live GPU verification before production use.
+
 ## Using JoshBox from a phone with GCP or Vast
 
 The mobile studio has bottom navigation, a Google Cloud / Vast.ai / Current GPU selector, and per-job GPU affinity. Named profiles require protected server-side `VIDEO_PROXY_GCP_{URL,TOKEN}` or `VIDEO_PROXY_VAST_{URL,TOKEN}` settings. The selector never rents or wakes a GPU. See [the mobile multi-GPU setup guide](docs/MOBILE_GPU_PROVIDERS.md) for the exact phone workflow, Google Cloud setup, required Site authentication/storage, and privacy checks.
