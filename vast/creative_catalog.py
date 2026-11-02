@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 ID = re.compile(r'^[a-z0-9][a-z0-9_-]{0,63}$')
-SAFE_FILENAME = re.compile(r'^[^/\\\\:]+\\.(?:safetensors|pt|ckpt)$', re.I)
+SAFE_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*[.](?:safetensors|pt|ckpt)$", re.I)
 ALLOWED_MODELS = {'minimax_h3','wan22_14b','wan22_5b','ltx13b','ltx23','hunyuan15'}
 ALLOWED_MODES = {'fast','quality'}
 LORA_NODES = {'LoraLoader','LoraLoaderModelOnly','LoraLoaderModelOnlyAdvanced'}
