@@ -31,3 +31,18 @@
  .studio-header #checkConnection{grid-column:2;grid-row:2}
  .studio-header .provider-field{grid-column:1/-1}
 }
+
+/* GPU power and verified workflow controls */
+.gpu-control-body{padding:18px 21px;display:grid;gap:12px}
+.gpu-control-body .hint{margin:0;overflow-wrap:anywhere}
+.gpu-control-actions{display:flex;flex-wrap:wrap;gap:9px}
+.gpu-control-actions .button{flex:1 1 125px}
+.gpu-cost{font-size:11px;line-height:1.6;color:#8ea5c0}
+#instanceStatus{overflow-wrap:anywhere;text-align:right}
+.creative-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:21px 0 8px;padding:17px;border:1px solid #31465f;border-radius:12px;background:#111f30}
+.creative-options>div{min-width:0}
+.creative-strength{grid-column:1/-1}
+.creative-strength>input{width:100%;min-height:36px;accent-color:#61cbd4}
+.creative-strength .field-label span{font-weight:400;color:#86cbd7}
+.creative-options>p{grid-column:1/-1;margin:0}
+@media(max-width:640px){.creative-options{grid-template-columns:1fr;padding:14px}.creative-strength,.creative-options>p{grid-column:1}.gpu-control-body{padding:14px}.gpu-control-actions .button{min-height:46px}.gpu-control-panel .panel-title{align-items:flex-start}}
