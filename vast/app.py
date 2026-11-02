@@ -22,6 +22,7 @@ from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from workflow_readiness import missing_requirements, fixed_controls
+from creative_catalog import read_catalog, resolve_workflow, resolve_lora, usable_loras, lora_slots
 
 DATA = Path(os.environ.get('JOSHBOX_DATA_DIR', '/workspace/joshbox-data'))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -45,6 +46,9 @@ class Settings(BaseModel):
     negative: str = Field(default='', max_length=1500)
     mode: str = 'quality'
     model: str = 'minimax_h3'
+    workflow_id: str = 'default'
+    lora_id: str = ''
+    lora_strength: float = Field(default=1.0, ge=0, le=2)
     width: int = Field(default=1024, ge=256, le=2048)
     height: int = Field(default=576, ge=256, le=2048)
     frames: int = Field(default=124, ge=5, le=362)
@@ -87,9 +91,10 @@ def update(job, event, **fields):
     DB.execute('UPDATE jobs SET status=?,data=? WHERE id=?', (job['status'], json.dumps(job), job['id']))
     DB.commit()
 
-def template_for(mode, model='minimax_h3'):
+def template_for(mode, model='minimax_h3', workflow_id='default'):
     name = 'WORKFLOW_' + MODELS[model] + '_' + mode.upper() + '_PATH'
-    filename = os.environ.get(name, '') or (os.environ.get('WORKFLOW_' + mode.upper() + '_PATH', '') if model=='minimax_h3' else '')
+    default_path = os.environ.get(name, '') or (os.environ.get('WORKFLOW_' + mode.upper() + '_PATH', '') if model=='minimax_h3' else '')
+    filename = resolve_workflow(read_catalog(), model, mode, workflow_id, default_path)
     if not filename or not Path(filename).is_file(): raise HTTPException(503, f'The {mode} workflow has not been configured.')
     try: graph = json.loads(Path(filename).read_text())
     except (ValueError, OSError): raise HTTPException(503, 'Workflow file could not be read.')
@@ -104,7 +109,8 @@ def template_for(mode, model='minimax_h3'):
     return graph
 
 def workflow(settings, image):
-    graph = template_for(settings.mode, settings.model)
+    graph = template_for(settings.mode, settings.model, settings.workflow_id)
+    lora_values = resolve_lora(read_catalog(), settings.model, graph, settings.lora_id, settings.lora_strength)
     for key, value in fixed_controls(graph).items():
         if getattr(settings, key) != value:
             raise HTTPException(422, f'This workflow fixes {key} at {value}.')
@@ -116,7 +122,7 @@ def workflow(settings, image):
         raise HTTPException(422, 'LTX requires an 8k+1 frame count.')
     if settings.model in ('wan22_14b','wan22_5b','hunyuan15') and (settings.frames - 1) % 4:
         raise HTTPException(422, 'This video model requires a 4k+1 frame count.')
-    values = {'$prompt': settings.prompt, '$negative': settings.negative, '$image': image, '$width': settings.width, '$height': settings.height, '$frames': settings.frames, '$fps': settings.fps, '$steps': settings.steps, '$seed': settings.seed, '$motion_bucket': settings.motion_bucket, '$motion_scale': settings.motion_scale}
+    values = {'$prompt': settings.prompt, '$negative': settings.negative, '$image': image, '$width': settings.width, '$height': settings.height, '$frames': settings.frames, '$fps': settings.fps, '$steps': settings.steps, '$seed': settings.seed, '$motion_bucket': settings.motion_bucket, '$motion_scale': settings.motion_scale, **lora_values}
     def replace(value):
         if isinstance(value, str) and value.startswith('$'):
             if value not in values: raise HTTPException(503, 'Unknown workflow input placeholder.')
@@ -240,14 +246,86 @@ async def capabilities():
             object_info = response.json()
         except Exception:
             object_info = {}
+    catalog = read_catalog()
     profiles = {}
+    workflow_options = []
     for model in MODELS:
         modes = {}
         for mode in ('quality', 'fast'):
             try:
                 graph = template_for(mode, model); text = json.dumps(graph)
                 missing = missing_requirements(graph, object_info)
-                modes[mode] = {'ready': not missing, 'missing': missing, 'fixed': fixed_controls(graph), 'controls': [x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('$'+x) in text], 'h3': any(n['class_type']=='MiniMaxH3ImageToVideo' for n in graph.values())}
+                modes[mode] = {'ready': not missing, 'missing': missing, 'fixed': fixed_controls(graph), 'controls': [x for x in ('width','height','frames','fps','steps','seed','negative','motion_bucket','motion_scale') if json.dumps('
+            except HTTPException: modes[mode] = {'ready': False, 'controls': []}
+        profiles[model] = modes
+    for entry in catalog['workflows']:
+        try:
+            graph=template_for(entry['mode'],entry['model'],entry['id'])
+            missing=missing_requirements(graph,object_info)
+            available_loras=usable_loras(catalog,entry['model'],graph,object_info)
+            if lora_slots(graph):
+                if not available_loras: missing.append('No registered, installed LoRA for this loader.')
+                else:
+                    chosen=next(l for l in catalog['loras'] if l['id']==available_loras[0]['id'])
+                    sample=json.loads(json.dumps(graph).replace('"$lora_name"',json.dumps(chosen['filename'])).replace('"$lora_strength"','1.0'))
+                    missing=missing_requirements(sample,object_info)
+            workflow_options.append({'id':entry['id'],'name':entry['name'],'model':entry['model'],'mode':entry['mode'],'ready':not missing,'missing':missing,'loras':available_loras})
+        except HTTPException as exc:
+            workflow_options.append({'id':entry['id'],'name':entry['name'],'model':entry['model'],'mode':entry['mode'],'ready':False,'missing':[str(exc.detail)],'loras':[]})
+    return {'connected': True, 'profiles': profiles, 'workflows':workflow_options, 'modes': profiles['minimax_h3']}
+
+@app.post('/api/generate', dependencies=[Depends(auth)])
+async def generate(request: Request):
+    if int(request.headers.get('content-length', '0')) > 14*1024**2: raise HTTPException(413, 'Image exceeds the upload limit.')
+    form = await request.form()
+    try:
+        try: settings = Settings.model_validate_json(str(form['settings']))
+        except Exception: raise HTTPException(422, 'Check the generation settings.')
+        job_id = str(settings.request_id)
+        existing = DB.execute('SELECT owner,data FROM jobs WHERE id=?', (job_id,)).fetchone()
+        if existing:
+            if existing['owner'] != settings.owner_id: raise HTTPException(404, 'Job not found')
+            job = json.loads(existing['data'])
+            if job['status'] not in ('complete','failed'): start_task(job)
+        else:
+            graph = workflow(settings, 'pending.png')
+            image = form.get('image')
+            if not image or not hasattr(image, 'read'): raise HTTPException(422, 'Select a starting image.')
+            content = await image.read(12*1024**2 + 1)
+            if len(content) > 12*1024**2: raise HTTPException(413, 'Image exceeds 12 MB.')
+            ext = 'png' if content.startswith(b'\x89PNG\r\n\x1a\n') else 'jpg' if content.startswith(b'\xff\xd8\xff') else 'webp' if content[:4]==b'RIFF' and content[8:12]==b'WEBP' else None
+            if not ext: raise HTTPException(422, 'Use PNG, JPG, or WebP.')
+            job = {'id': job_id, 'status': 'submitting', 'settings': settings.model_dump(mode='json'), 'revision': 0, 'event': 'status', 'step': 0, 'total': 0, 'node': '', 'media': [], 'logs': []}
+            try: DB.execute('INSERT INTO jobs VALUES (?,?,?,?)', (job_id, settings.owner_id, 'submitting', json.dumps(job))); DB.commit()
+            except sqlite3.IntegrityError: raise HTTPException(409, 'An active generation already exists. Refresh its status.')
+            start_task(job, graph, (job_id+'.'+ext, content, 'image/jpeg' if ext=='jpg' else 'image/'+ext))
+        async def events():
+            revision = -1
+            while True:
+                current = get_job(job_id, settings.owner_id)
+                if current['revision'] != revision:
+                    revision = current['revision']; public = {k:v for k,v in current.items() if k != 'settings'}
+                    yield 'event: '+current['event']+'\ndata: '+json.dumps(public)+'\n\n'
+                if current['status'] in ('complete','failed','uncertain'): break
+                yield ': heartbeat\n\n'; await asyncio.sleep(1)
+        return StreamingResponse(events(), media_type='text/event-stream', headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
+
+    finally:
+        await form.close()
+
+@app.get('/api/jobs/{job_id}', dependencies=[Depends(auth)])
+async def job_status(job_id: str, owner_id: str):
+    job = get_job(job_id, owner_id)
+    if job['status'] not in ('complete','failed'): start_task(job)
+    return {k:v for k,v in job.items() if k != 'settings'}
+
+@app.get('/api/media/{job_id}/{index}', dependencies=[Depends(auth)])
+async def media(job_id: str, index: int, owner_id: str):
+    job = get_job(job_id, owner_id)
+    if job['status'] != 'complete' or not 0 <= index < len(job['media']): raise HTTPException(404, 'Media not found')
+    return FileResponse(DATA / job_id / f'{index}.mp4', media_type='video/mp4', filename=job['media'][index]['filename'])
++x) in text], 'h3': any(n['class_type']=='MiniMaxH3ImageToVideo' for n in graph.values())}
+                workflow_options.append({'id':'default','model':model,'mode':mode,'name':'Default '+mode.title(),'ready':not missing,'loras':usable_loras(catalog,model,graph,object_info)})
             except HTTPException: modes[mode] = {'ready': False, 'controls': []}
         profiles[model] = modes
     return {'connected': True, 'profiles': profiles, 'modes': profiles['minimax_h3']}
