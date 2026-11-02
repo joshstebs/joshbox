@@ -2,7 +2,7 @@ import {bindings,ApiError} from './server';
 import {managedProvider,gcpInstanceUrl,vastInstanceUrl,actionAllowed,type ManagedProvider,type InstanceAction} from './instance-controls.mts';
 
 type GpuStatus={provider:ManagedProvider;configured:boolean;name:string;status:string;hourlyUsd:number|null;message?:string};
-const b64url=(bytes:Uint8Array)=>btoa(String.fromCharCode(...bytes)).replace(/=/g,'').replace(/\\+/g,'-').replace(/\\//g,'_');
+const b64url=(bytes:Uint8Array)=>btoa(String.fromCharCode(...bytes)).replace(/=/g,'').replaceAll('+','-').replaceAll('/','_');
 function gcpEnv(){
   const env=bindings();
   if(!env.GCP_INSTANCE_PROJECT||!env.GCP_INSTANCE_ZONE||!env.GCP_INSTANCE_NAME||!env.GCP_SERVICE_ACCOUNT_JSON)return null;
