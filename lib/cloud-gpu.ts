@@ -23,7 +23,7 @@ async function gcpToken(json:string):Promise<string>{
   const payload=b64url(enc.encode(JSON.stringify({iss:account.client_email,scope:'https://www.googleapis.com/auth/compute',aud:'https://oauth2.googleapis.com/token',iat:now,exp:now+900})));
   const raw=account.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\\s/g,'');
   let bytes:Uint8Array;
-  try{bytes=Uint8Array.from(atob(raw),x=>x.charCodeAt(0));}catch{throw new ApiError('Google Cloud signing key is invalid.',503);}
+  try{bytes=Uint8Array.from(Array.from(atob(raw),ch=>ch.charCodeAt(0)));}catch{throw new ApiError('Google Cloud signing key is invalid.',503);}
   try{
     const key=await crypto.subtle.importKey('pkcs8',bytes,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
     const signature=new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,enc.encode(header+'.'+payload)));
