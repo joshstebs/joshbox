@@ -25,7 +25,8 @@ async function gcpToken(json:string):Promise<string>{
   let bytes:Uint8Array;
   try{bytes=Uint8Array.from(Array.from(atob(raw),ch=>ch.charCodeAt(0)));}catch{throw new ApiError('Google Cloud signing key is invalid.',503);}
   try{
-    const key=await crypto.subtle.importKey('pkcs8',bytes,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
+    const privateKeyBytes=new ArrayBuffer(bytes.byteLength);new Uint8Array(privateKeyBytes).set(bytes);
+    const key=await crypto.subtle.importKey('pkcs8',privateKeyBytes,{name:'RSASSA-PKCS1-v1_5',hash:'SHA-256'},false,['sign']);
     const signature=new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',key,enc.encode(header+'.'+payload)));
     const assertion=header+'.'+payload+'.'+b64url(signature);
     const response=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'urn:ietf:params:oauth:grant-type:jwt-bearer',assertion}),redirect:'error',signal:AbortSignal.timeout(15000)});
