@@ -1,6 +1,6 @@
 /** Server-only bridge to the existing authenticated JoshBox Cloudflare D1 data service. */
 export type SqlMethod = 'run'|'all'|'values'|'get';
-export async function queryDataService(sql:string,params:unknown[],method:SqlMethod):Promise<{rows:unknown}>{
+export async function queryDataService(sql:string,params:unknown[],method:SqlMethod):Promise<{rows:unknown[]}>{
   const base=process.env.DATA_SERVICE_URL,token=process.env.DATA_SERVICE_TOKEN;
   if(!base||!token||token.length<32)throw new Error('JoshBox data service credentials are missing.');
   const url=new URL(base);
@@ -10,5 +10,5 @@ export async function queryDataService(sql:string,params:unknown[],method:SqlMet
   if(!response.ok)throw new Error('JoshBox data service did not complete the query.');
   const result=await response.json() as {rows:unknown[][]};
   if(!Array.isArray(result.rows))throw new Error('The data service returned an invalid query result.');
-  return {rows:method==='get'?result.rows[0]:result.rows};
+  return {rows:method==='get'?(result.rows[0]??[]):result.rows};
 }
