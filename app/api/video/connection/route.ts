@@ -7,7 +7,7 @@ export async function GET(request:Request){
     const provider=parseVideoProvider(new URL(request.url).searchParams.get('provider'));
     const providers=configuredVideoProviders();
     if(!providers[provider])return Response.json({connected:false,provider,providers,error:'This GPU profile needs its private HTTPS proxy URL and token.'},{headers:{'Cache-Control':'no-store'}});
-    const upstream=await(await videoProxy('api/capabilities',{},false,provider)).json();
+    const upstream=await(await videoProxy('api/capabilities',{},false,provider)).json() as Record<string,unknown>;
     return Response.json({...upstream,provider,providers},{headers:{'Cache-Control':'no-store'}});
   }catch(e){return fail(e);}
 }

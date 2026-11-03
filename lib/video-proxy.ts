@@ -13,7 +13,7 @@ function providerConfig(provider:VideoProvider){
   const c=bindings();
   if(provider==='gcp')return {url:c.VIDEO_PROXY_GCP_URL,token:c.VIDEO_PROXY_GCP_TOKEN};
   if(provider==='vast')return {url:c.VIDEO_PROXY_VAST_URL,token:c.VIDEO_PROXY_VAST_TOKEN};
-  return {url:c.VIDEO_PROXY_URL,token:c.VIDEO_PROXY_TOKEN};
+  return {url:c.VIDEO_PROXY_URL||process.env.VIDEO_PROXY_UPSTREAM_URL,token:c.VIDEO_PROXY_TOKEN};
 }
 
 export function configuredVideoProviders():Record<VideoProvider,boolean>{

@@ -1,3 +1,5 @@
+> **Vercel-native migration (preview build READY):** This branch builds with `next build`, verifies Cloudflare Access JWTs, uses the existing protected D1 data service, and stores media with private Vercel Blob. See [Vercel migration runbook](docs/VERCEL_NATIVE_MIGRATION.md). The mobile and GPU-control PRs are stacked dependencies; the preview is not yet a verified production release.
+
 # JoshBox — private AI video studio
 
 The primary UI is now a dark, responsive single page written in vanilla HTML and JavaScript with Tailwind CSS via CDN. It is served at `/studio.html` on the existing private ChatGPT Site. The root redirects there after sign-in. The existing Sites server, D1 records, private R2 gallery, and authenticated media routes remain in place; the daily UI has no ComfyUI node graph.
