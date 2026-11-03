@@ -5,7 +5,10 @@ import {buildVideoPrompt} from './prompt-builder.js';
 import {presets,dimensionsFor,stepsForMode} from './video-presets.js';
 
 const $=id=>document.getElementById(id);
-const state={preset:presets[0],mode:'quality',capabilities:null,busy:false,unresolved:false,file:null,imageUrl:null,extension:null,current:null,jobs:[],requestId:null,pollTimer:null,logs:[]};
+const providerLabels={default:'GPU',gcp:'Google Cloud',vast:'Vast.ai'};
+function rememberedProvider(){try{const value=localStorage.getItem('joshbox-provider');return Object.hasOwn(providerLabels,value)?value:'default';}catch{return 'default';}}
+const state={preset:presets[0],provider:rememberedProvider(),mode:'quality',capabilities:null,busy:false,unresolved:false,file:null,imageUrl:null,extension:null,current:null,jobs:[],requestId:null,pollTimer:null,logs:[]};
+$('provider').value=state.provider;
 function notice(text,error=false){const box=$(error?'error':'notice');box.textContent=text;box.hidden=!text;}
 function log(message){state.logs.push('['+new Date().toLocaleTimeString()+'] '+message);state.logs=state.logs.slice(-150);$('executionLog').textContent=state.logs.join('\n');}
 async function api(url,options={}){const response=await fetch(url,{...options,cache:'no-store'});let value;try{value=await response.json();}catch{throw new Error('Sign in again or check your connection.');}if(!response.ok)throw new Error(value.error||value.detail||'The request failed.');return value;}
@@ -14,6 +17,7 @@ function applyCapabilities(){
   const info=profile(),controls=info?.controls||[];
   for(const key of ['fps','steps'])if(Number.isFinite(info?.fixed?.[key])){$(key).value=info.fixed[key];$(key+'Slider').value=info.fixed[key];}
   const connected=!!state.capabilities?.connected;
+  $('provider').disabled=state.busy||state.unresolved;
   $('generate').disabled=state.busy||state.unresolved||!connected||!info?.ready;
   $('fastMode').disabled=state.busy||(connected&&!profile('fast')?.ready);
   $('qualityMode').disabled=state.busy||(connected&&!profile('quality')?.ready);
@@ -57,7 +61,24 @@ $('builderClear').onclick=()=>{for(const key of builderFields)$('builder'+key).v
 $('builderApply').onclick=()=>{const prompt=updateBuilder();if(!prompt||state.busy)return;$('positivePrompt').value=prompt;updateSuggestions();$('positivePrompt').focus();notice('Prompt added. Review it before generating.');};
 $('builderCopy').onclick=async()=>{const prompt=updateBuilder();if(!prompt)return;try{await navigator.clipboard.writeText(prompt);notice('Prompt copied.');}catch{notice('Clipboard permission unavailable. Select the preview text to copy it.',true);}};
 function setImage(file,extension=null){if(!file||!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>12*1024**2)throw new Error('Use PNG, JPG, or WebP under 12 MB.');if(state.imageUrl)URL.revokeObjectURL(state.imageUrl);state.file=file;state.extension=extension;state.imageUrl=URL.createObjectURL(file);$('imagePreview').src=state.imageUrl;$('imagePreview').hidden=false;$('uploadCopy').hidden=true;$('removeImage').hidden=false;$('extensionNote').hidden=!extension;$('extensionNote').textContent=extension?'Starting from the previous video’s last frame. Describe the next scene.':'';}
-async function checkConnection(){try{state.capabilities=await api('/api/connection');$('connectionBadge').classList.add('connected');$('connectionBadge').lastChild.textContent=' GPU responding';notice('Proxy is responding. Workflow configuration and a successful render are separate checks.');}catch(e){state.capabilities=null;$('connectionBadge').classList.remove('connected');$('connectionBadge').lastChild.textContent=' GPU not connected';notice(e.message);}finally{applyCapabilities();}}
+async function checkConnection(){
+  const provider=state.provider,label=providerLabels[provider];
+  try{
+    const capabilities=await api('/api/connection?provider='+encodeURIComponent(provider));
+    if(provider!==state.provider)return;
+    if(!capabilities.connected)throw new Error(capabilities.error||'The selected GPU is not responding.');
+    state.capabilities=capabilities;
+    $('connectionBadge').classList.add('connected');
+    $('connectionBadge').lastChild.textContent=' '+label+' online';
+    notice(label+' is responding. Workflow configuration and a successful render are separate checks.');
+  }catch(e){
+    if(provider!==state.provider)return;
+    state.capabilities=null;
+    $('connectionBadge').classList.remove('connected');
+    $('connectionBadge').lastChild.textContent=' '+label+' offline';
+    notice(e.message);
+  }finally{applyCapabilities();}
+}
 function progress(data,archived=false){
   $('renderState').textContent=renderStatusLabel(data.status,archived);
   if(data.node)$('activeNode').textContent=data.node;
@@ -85,15 +106,23 @@ async function generate(event){
   if(!$('adultOnly').checked){notice('Confirm that any people are fictional adults.',true);return;}
   const dimensions=dimensionsFor(state.preset.model,$('aspectRatio').value);
   const seed=$('randomSeed').checked?crypto.getRandomValues(new Uint32Array(1))[0]%2147483648:Number($('seed').value);$('seed').value=String(seed);
-  const settings={request_id:state.requestId||crypto.randomUUID(),model:state.preset.model,mode:state.mode,prompt:$('positivePrompt').value.trim(),negative:$('negativePrompt').value,width:dimensions[0],height:dimensions[1],frames:Number($('frames').value),fps:Number($('fps').value),steps:Number($('steps').value),motion_bucket:Number($('motionBucket').value),motion_scale:Number($('motionScale').value),seed,extend_job_id:state.extension?.job.id,extend_index:state.extension?.index};
+  const settings={request_id:state.requestId||crypto.randomUUID(),provider:state.provider,model:state.preset.model,mode:state.mode,prompt:$('positivePrompt').value.trim(),negative:$('negativePrompt').value,width:dimensions[0],height:dimensions[1],frames:Number($('frames').value),fps:Number($('fps').value),steps:Number($('steps').value),motion_bucket:Number($('motionBucket').value),motion_scale:Number($('motionScale').value),seed,extend_job_id:state.extension?.job.id,extend_index:state.extension?.index};
   for(const [id,min,max] of [['frames',1,362],['fps',1,60],['steps',1,100],['motion_bucket',0,255],['motion_scale',0,10],['seed',0,2147483647]])if(!Number.isFinite(settings[id])||settings[id]<min||settings[id]>max||(id!=='motion_scale'&&!Number.isInteger(settings[id]))){notice('Check the '+id.replace('_',' ')+' value.',true);return;}
   state.requestId=settings.request_id;state.busy=true;if(innerWidth<1024)document.querySelector('.monitor').scrollIntoView({behavior:'smooth',block:'start'});applyCapabilities();updateSuggestions();log('Sending the image and settings to your GPU proxy.');$('activeNode').textContent='Preparing the workflow';$('progressTrack').classList.add('indeterminate');
   const form=new FormData();form.append('settings',JSON.stringify(settings));form.append('image',state.file);
   let completed=false;
   try{const response=await fetch('/api/generate',{method:'POST',body:form});if(!response.ok){const value=await response.json();if([400,403,409,413,422,503].includes(response.status))state.requestId=null;throw new Error(value.error||'Generation request failed.');}
-    if(!response.headers.get('content-type')?.includes('text/event-stream'))throw new Error('The proxy did not return a progress stream.');
-    await consumeSSE(response,async(type,data)=>{progress(data);if(type==='completed'||data.status==='complete'){completed=await finishJob(settings.request_id);}else if(type==='error'){throw new Error(data.message||'Generation needs attention.');}});
-    if(!completed){state.unresolved=true;state.busy=false;void monitor(settings.request_id);}
+    const contentType=response.headers.get('content-type')||'';
+    if(contentType.includes('application/json')){
+      const receipt=await response.json();
+      if(receipt.id!==settings.request_id)throw new Error('The GPU returned an unexpected generation receipt.');
+      if(receipt.status==='complete'){completed=await finishJob(receipt.id);}
+      else{log('Generation accepted. JoshBox is checking its status independently of this browser tab.');void monitor(receipt.id);}
+    }else if(contentType.includes('text/event-stream')){
+      // Compatibility for older JoshBox deployments while the backend is being upgraded.
+      await consumeSSE(response,async(type,data)=>{progress(data);if(type==='completed'||data.status==='complete'){completed=await finishJob(settings.request_id);}else if(type==='error'){throw new Error(data.message||'Generation needs attention.');}});
+      if(!completed){state.unresolved=true;state.busy=false;void monitor(settings.request_id);}
+    }else throw new Error('The generation endpoint returned an unsupported response type.');
   }catch(e){state.busy=false;notice(e.message,true);log(e.message);await refreshGallery();const receipt=state.jobs.find(j=>j.id===settings.request_id);if(receipt&&!['complete','failed'].includes(receipt.status)){state.unresolved=true;void monitor(receipt.id);}else if(receipt?.status==='failed'){state.requestId=null;state.unresolved=false;}}
   finally{if(completed)state.busy=false;applyCapabilities();updateSuggestions();}
 }
@@ -105,7 +134,11 @@ async function refreshGallery(resume=true){try{const result=await api('/api/stud
     if(media.kind==='image'){imageCount++;const button=document.createElement('button');button.type='button';button.setAttribute('aria-label','Use image: '+job.prompt.slice(0,60));const thumbnail=document.createElement('img');thumbnail.src=preview.src;thumbnail.alt=job.prompt.slice(0,120);button.append(thumbnail);button.onclick=()=>void useImage(job,index).catch(e=>notice(e.message,true));$('pickerImages').append(button);}}
   if(!outputs.length){const text=document.createElement('p');text.className='hint';text.textContent='No creations saved yet. Finished videos will be archived here before they become downloadable.';$('gallery').append(text);}
   $('pickerEmpty').hidden=imageCount>0;
-  const pending=result.jobs.find(j=>j.backend==='proxy'&&!['complete','failed'].includes(j.status));if(resume&&pending&&!state.busy){state.requestId=pending.id;state.busy=true;applyCapabilities();void monitor(pending.id);}
+  const pending=result.jobs.find(j=>j.backend==='proxy'&&!['complete','failed'].includes(j.status));if(resume&&pending&&!state.busy){
+    const provider=Object.hasOwn(providerLabels,pending.provider)?pending.provider:'default';
+    if(provider!==state.provider){state.provider=provider;$('provider').value=provider;void checkConnection();}
+    state.requestId=pending.id;state.busy=true;applyCapabilities();void monitor(pending.id);
+  }
   const latest=outputs.find(x=>x.media.kind==='video');if(latest&&!state.current)mountVideo(latest.job,latest.index);
 }catch(e){notice(e.message,true);}}
 
@@ -125,6 +158,14 @@ $('randomSeed').onchange=applyCapabilities;$('generationForm').addEventListener(
 $('loopVideo').onchange=()=>{$('videoPlayer').loop=$('loopVideo').checked;};
 $('fullscreen').onclick=()=>{$('videoPlayer').requestFullscreen?.().catch(()=>notice('Fullscreen is unavailable on this device. Use the player controls.'));};
 $('extend').onclick=()=>void extendCurrent();$('checkConnection').onclick=()=>void checkConnection();$('refreshGallery').onclick=()=>void refreshGallery();
+$('provider').addEventListener('change',()=>{
+  if(state.busy||state.unresolved){$('provider').value=state.provider;return;}
+  state.provider=$('provider').value;
+  try{localStorage.setItem('joshbox-provider',state.provider);}catch{}
+  state.capabilities=null;applyCapabilities();void checkConnection();
+});
+window.addEventListener('online',()=>{if(!document.hidden){void checkConnection();if(state.requestId)void monitor(state.requestId);}});
+window.addEventListener('offline',()=>notice('Your phone is offline. Existing jobs are not resubmitted. Reconnect to check their status.',true));
 $('chooseGallery').onclick=()=>{$('imagePicker').showModal();};$('closePicker').onclick=()=>{$('imagePicker').close();};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.requestId&&!state.busy)void monitor(state.requestId);});
 updateSuggestions();applyCapabilities();void checkConnection();void refreshGallery();

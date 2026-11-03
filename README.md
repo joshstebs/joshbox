@@ -15,10 +15,16 @@ The native MiniMax H3 setup is preserved. New model quick picks are draft settin
 - 16:9 (1024×576), 9:16 (576×1024), and 1:1 (768×768) presets; approximate 5/10/15-second picks; numeric/range controls for frames, FPS, steps, motion bucket, and motion scale.
 - Seed input and randomization; Fast/Quality and Boost. Boost selects the configured Fast workflow for the selected model. No automatic model downloads or speculative speed claims.
 - Quick picks: MiniMax H3, Wan 2.2 14B 4-step I2V, Wan 2.2 14B quality, Wan 2.2 5B TI2V, LTX 2.3 I2V, and HunyuanVideo 1.5. Selecting one loads a draft, not an installation.
-- POST `/api/generate` with multipart image and JSON settings. Its response is an SSE stream carrying real status, active node name, and per-node sampling step/total values. The percentage is per node, not an invented overall-workflow estimate.
+- POST `/api/generate` with multipart image and JSON settings. The Site returns a short-lived JSON job receipt, then the mobile UI polls `/api/video/jobs/:id` for real status, active node, and sampling steps. The Site no longer holds the browser request open for the entire GPU render. An older SSE response remains supported by the browser only for compatibility. The percentage is per node, not an invented overall-workflow estimate.
 - Video player, native controls, loop, fullscreen, MP4 download, collapsible execution log, and a private gallery.
 - Extend Video decodes the saved video's final presentation frame in the browser, previews it as the starting image, and generates a separate next clip. Automatic stitching, motion-context extension, and audio continuation are not implemented.
 - Generation, Boost, and model-dependent controls fail closed when their proxy/workflow mappings are unavailable.
+
+## Deployment and timeout incident, November 2026
+
+The Vercel project is configured as the **Next.js** framework, but this source uses `vinext`, Vite and Cloudflare Workers/ChatGPT Sites bindings for identity, D1 and R2. A successful `vinext build` creates `dist/server/wrangler.json`, not the `.next/routes-manifest.json` file expected by Vercel's Next.js adapter. Do **not** create a fake routes manifest or publish the static `dist/client` directory as a complete Vercel deployment: that would break private API/auth/gallery functions.
+
+Vercel's older production deployment recorded 30 runtime timeouts at 300 seconds (23 affected users, routes `/api/generate` and `/fastapi`, October 26–November 2, 2026). The updated Site code avoids a 300-second browser/backend SSE tunnel, acknowledges submitted jobs promptly and polls durable IDs. This change is **not yet deployed or verified on a real GPU**. See [incident and deployment contract](docs/BUILD_AND_TIMEOUT_INCIDENT.md) before merging.
 
 ## Backend path
 
@@ -53,6 +59,10 @@ The bootstrap preserves the existing private environment, installs pinned wrappe
 6. Expose only the authenticated wrapper via the existing protected Vast proxy with trusted HTTPS. A local SSH tunnel can be used for local-only access but is not reachable by the hosted Site. Do not expose ComfyUI itself. The entrypoint will refuse to start a duplicate ComfyUI process; do not run it alongside another launcher on port 8188.
 7. Configure the existing Site's protected runtime `VIDEO_PROXY_URL` and `VIDEO_PROXY_TOKEN`. The URL is the wrapper base URL, with a supported path prefix if needed, without credentials/query secrets. The old `COMFY_*` settings remain available for the legacy adapter.
 8. Check the GPU connection from the dashboard, generate a short clip, verify real step/node events, wait for private-gallery saving, download the MP4, and test Extend Video. Confirm downloads still work after stopping the GPU.
+
+## Using JoshBox from a phone with GCP or Vast
+
+The mobile studio has bottom navigation, a Google Cloud / Vast.ai / Current GPU selector, and per-job GPU affinity. Named profiles require protected server-side `VIDEO_PROXY_GCP_{URL,TOKEN}` or `VIDEO_PROXY_VAST_{URL,TOKEN}` settings. The selector never rents or wakes a GPU. See [the mobile multi-GPU setup guide](docs/MOBILE_GPU_PROVIDERS.md) for the exact phone workflow, Google Cloud setup, required Site authentication/storage, and privacy checks.
 
 ## Mobile-first one-command setup
 
