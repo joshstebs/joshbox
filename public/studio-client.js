@@ -112,9 +112,17 @@ async function generate(event){
   const form=new FormData();form.append('settings',JSON.stringify(settings));form.append('image',state.file);
   let completed=false;
   try{const response=await fetch('/api/generate',{method:'POST',body:form});if(!response.ok){const value=await response.json();if([400,403,409,413,422,503].includes(response.status))state.requestId=null;throw new Error(value.error||'Generation request failed.');}
-    if(!response.headers.get('content-type')?.includes('text/event-stream'))throw new Error('The proxy did not return a progress stream.');
-    await consumeSSE(response,async(type,data)=>{progress(data);if(type==='completed'||data.status==='complete'){completed=await finishJob(settings.request_id);}else if(type==='error'){throw new Error(data.message||'Generation needs attention.');}});
-    if(!completed){state.unresolved=true;state.busy=false;void monitor(settings.request_id);}
+    const contentType=response.headers.get('content-type')||'';
+    if(contentType.includes('application/json')){
+      const receipt=await response.json();
+      if(receipt.id!==settings.request_id)throw new Error('The GPU returned an unexpected generation receipt.');
+      if(receipt.status==='complete'){completed=await finishJob(receipt.id);}
+      else{log('Generation accepted. JoshBox is checking its status independently of this browser tab.');void monitor(receipt.id);}
+    }else if(contentType.includes('text/event-stream')){
+      // Compatibility for older JoshBox deployments while the backend is being upgraded.
+      await consumeSSE(response,async(type,data)=>{progress(data);if(type==='completed'||data.status==='complete'){completed=await finishJob(settings.request_id);}else if(type==='error'){throw new Error(data.message||'Generation needs attention.');}});
+      if(!completed){state.unresolved=true;state.busy=false;void monitor(settings.request_id);}
+    }else throw new Error('The generation endpoint returned an unsupported response type.');
   }catch(e){state.busy=false;notice(e.message,true);log(e.message);await refreshGallery();const receipt=state.jobs.find(j=>j.id===settings.request_id);if(receipt&&!['complete','failed'].includes(receipt.status)){state.unresolved=true;void monitor(receipt.id);}else if(receipt?.status==='failed'){state.requestId=null;state.unresolved=false;}}
   finally{if(completed)state.busy=false;applyCapabilities();updateSuggestions();}
 }
