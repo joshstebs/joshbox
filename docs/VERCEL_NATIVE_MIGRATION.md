@@ -19,7 +19,7 @@ This branch uses **`pnpm exec next build`** via `vercel.json` and the package sc
 
 ## Build and operational checks
 
-1. Run `pnpm install --no-frozen-lockfile` and `pnpm exec next build`, or use the automatic Vercel Git preview. During migration the install command is intentionally non-frozen because the dependency lockfile needs a reviewed regeneration for `jose` and `@vercel/blob` before reverting to `--frozen-lockfile`.
+1. Run `pnpm install --frozen-lockfile` and `pnpm exec next build`, or use the automatic Vercel Git preview. The `pnpm-lock.yaml` lockfile now includes both `jose` and `@vercel/blob` and Vercel uses a frozen install for reproducible builds.
 2. Verify Vercel reports **READY**, not merely a green GitHub Actions check. Ensure the deployment contains Next.js API functions, not just static assets.
 3. Verify an Access-authenticated request on the custom domain can obtain a `/api/studio` response with the correct owner and existing jobs. Verify unsigned requests receive HTTP 401. Never bypass the owner check to make previews appear ready.
 4. Verify all server-only production secrets exist and are scoped appropriately. Existing Vercel environment *names* were verified; no secrets were copied or printed as part of this migration.
