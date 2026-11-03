@@ -13,10 +13,20 @@ export async function POST(request:Request){try{
   const remoteId=videoJobRemoteId(input.provider,input.request_id);const db=getDb(),scope=and(eq(jobs.id,input.request_id),eq(jobs.userId,userId));
   if(input.extend_job_id){const parent=await db.select().from(jobs).where(and(eq(jobs.id,input.extend_job_id),eq(jobs.userId,userId))).get();if(parent?.status!=='complete'||JSON.parse(parent.media)[input.extend_index??0]?.kind!=='video')throw new ApiError('Choose a saved video from your own gallery.',404);}
   const prior=await db.select().from(jobs).where(scope).get();if(prior&&prior.remoteId!==remoteId)throw new ApiError('This request ID belongs to another job.',409);
-  if(prior?.status==='complete')return new Response('event: completed\ndata: '+JSON.stringify({id:prior.id,status:'complete',message:'Already saved in your gallery.'})+'\n\n',{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-store'}});
+  if(prior?.status==='complete')return Response.json({id:prior.id,status:'complete',message:'Already saved in your gallery.'},{headers:{'Cache-Control':'no-store'}});
   if(prior?.status==='failed')throw new ApiError('This request already failed. Review the settings and use a new request ID.',409);
+  // Never re-submit a known request ID: the GPU could already be rendering it.
+  if(prior)return Response.json({id:prior.id,status:prior.status,message:'Existing generation resumed; no second submission.'},{status:202,headers:{'Cache-Control':'no-store'}});
   if(!prior){try{await db.insert(jobs).values({id:input.request_id,userId,kind:'video',prompt:input.prompt,negative:input.negative,mode:input.mode,aspect:input.width>input.height?'landscape':input.width<input.height?'portrait':'square',seed:input.seed,duration:null,parentJobId:input.extend_job_id??null,remoteId,status:'submitting',media:'[]',createdAt:Date.now(),updatedAt:Date.now()});}catch{throw new ApiError('An active generation already exists. Check its status before starting another.',409);}}
   const body=new FormData();body.set('settings',JSON.stringify({...input,owner_id:userId}));body.set('image',image);
-  try{const response=await videoProxy('api/generate',{method:'POST',body},true,input.provider);if(!response.headers.get('content-type')?.includes('text/event-stream'))throw new ApiError('The video proxy did not return a progress stream.',502);if(prior?.status!=='archiving')await db.update(jobs).set({status:'queued',updatedAt:Date.now()}).where(scope);return new Response(response.body,{headers:{'Content-Type':'text/event-stream','Cache-Control':'no-cache, no-store','X-Accel-Buffering':'no'}});}
+  try{
+    const response=await videoProxy('api/generate',{method:'POST',body},true,input.provider);
+    if(!response.headers.get('content-type')?.includes('text/event-stream'))throw new ApiError('The video proxy did not acknowledge the generation.',502);
+    // The FastAPI wrapper starts a durable background task before returning the SSE headers.
+    // We do not forward that long-running stream through a web serverless request.
+    await db.update(jobs).set({status:'queued',updatedAt:Date.now()}).where(scope);
+    void response.body?.cancel().catch(()=>{});
+    return Response.json({id:input.request_id,status:'queued',provider:input.provider,message:'Generation accepted. Poll this job for progress.'},{status:202,headers:{'Cache-Control':'no-store'}});
+  }
   catch(e){const rejected=e instanceof ApiError&&[400,401,403,404,409,422,503].includes(e.upstreamStatus??0);await db.update(jobs).set({status:rejected?'failed':'uncertain',message:rejected?'The proxy rejected this request. Check connection and workflow settings.':'Submission is unconfirmed. Refresh the existing job before retrying.',updatedAt:Date.now()}).where(scope);throw e;}
 }catch(e){return fail(e);}}
