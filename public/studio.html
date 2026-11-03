@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#090e1b">
   <title>JoshBox · Video Studio</title><link rel="icon" href="/favicon.svg"><link rel="manifest" href="/manifest.webmanifest">
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <link rel="stylesheet" href="/studio-dark.css"><script type="module" src="/studio-client.js?v=prompt-builder-1"></script>
+  <link rel="stylesheet" href="/studio-dark.css"><script type="module" src="/studio-client.js?v=gpu-controls-2"></script>
 </head>
 <body class="bg-slate-950 text-slate-200 antialiased">
   <div class="app-wrap mx-auto max-w-[1480px] px-4 sm:px-7 lg:px-10">
@@ -19,6 +19,13 @@
     <nav class="mobile-dock" aria-label="JoshBox navigation"><a href="#controlsSection"><span aria-hidden="true">✦</span>Create</a><a href="#renderSection"><span aria-hidden="true">▣</span>Render</a><a href="#gallerySection"><span aria-hidden="true">▤</span>Gallery</a></nav>
     <section class="intro py-7 sm:py-9"><div><p class="eyebrow">FROM A STILL FRAME TO A NEW STORY</p><h1 class="text-3xl sm:text-4xl font-semibold tracking-tight mt-3">Make your next scene.</h1><p class="text-slate-400 mt-3">Your image. Your direction. One place to bring it to life.</p></div><div class="intro-art" aria-hidden="true"><div class="orb"></div><div class="orbit"></div><div class="landscape"></div><span>IMAGE → MOTION</span></div></section>
     <div id="notice" class="notice" role="status" hidden></div><div id="error" class="notice error" role="alert" hidden></div>
+    <section class="panel gpu-control-panel mb-6" id="gpuSection" aria-label="Cloud GPU controls">
+      <div class="panel-title"><h2>Cloud GPU control</h2><span class="text-xs text-slate-400" id="instanceStatus" role="status">Choose Google Cloud or Vast.ai</span></div>
+      <div class="gpu-control-body"><p id="instanceDescription" class="hint">Start or stop your existing GPU instance without leaving JoshBox. No new rental is created.</p>
+        <div class="gpu-control-actions"><button id="refreshInstance" type="button" class="button subtle">↻ Check instance</button><button id="startInstance" type="button" class="button primary" disabled>▶ Start instance</button><button id="stopInstance" type="button" class="button subtle" disabled>■ Stop instance</button></div>
+        <small id="instanceCost" class="gpu-cost">Stopped instances can still incur disk charges. Starting a GPU may begin hourly compute charges.</small>
+      </div>
+    </section>
     <section aria-label="Quick pick setups" class="quick-section mb-6"><div class="flex justify-between items-center mb-3"><h2 class="text-sm font-semibold">Quick picks</h2><span class="text-xs text-slate-500">Settings presets · no automatic installs</span></div><div id="quickPicks" class="quick-bar"></div></section>
     <div class="studio-grid grid lg:grid-cols-[minmax(360px,0.95fr)_minmax(400px,1.3fr)] gap-6 items-start">
       <section id="controlsSection" class="panel"><div class="panel-title"><h2>Scene controls</h2><span id="selectedModel" class="text-xs text-slate-400">MiniMax H3</span></div>
@@ -40,6 +47,10 @@
           </details>
           <div class="suggestion-heading"><span>✦ Suggested next details</span><small>Tap to add</small></div><div id="suggestions" class="suggestions"></div>
           <details class="negative-details"><summary>Negative prompt <span class="text-slate-500 text-xs">Optional</span></summary><label class="sr-only" for="negativePrompt">Negative prompt</label><textarea id="negativePrompt" rows="2" maxlength="1500" placeholder="Describe what to avoid…">blurry, distorted anatomy, text, watermark</textarea></details>
+          <div class="creative-options"><div><label class="field-label" for="workflowPicker">Model workflow</label><select id="workflowPicker" aria-label="Choose a model workflow"><option value="default">Default workflow</option></select></div>
+            <div><label class="field-label" for="loraPicker">Optional compatible LoRA</label><select id="loraPicker" aria-label="Choose a compatible LoRA"><option value="">No LoRA override</option></select></div>
+            <div class="creative-strength"><label class="field-label" for="loraStrength">LoRA strength <span id="loraStrengthLabel">1.00</span></label><input type="range" id="loraStrength" min="0" max="2" value="1" step="0.05" disabled></div>
+            <p id="workflowHint" class="hint">Only installed, operator-approved workflows and model-compatible LoRAs appear here.</p></div>
           <label class="field-label mt-5" for="aspectRatio">Aspect ratio</label><select id="aspectRatio"><option value="landscape">16:9 · Landscape · 1024 × 576</option><option value="portrait">9:16 · Portrait · 576 × 1024</option><option value="square">1:1 · Square · 768 × 768</option></select>
           <div class="mode-row mt-5" aria-label="Generation mode"><button id="qualityMode" class="mode selected" type="button" aria-pressed="true">✦ Quality</button><button id="fastMode" class="mode" type="button" aria-pressed="false">ϟ Fast</button></div>
           <label class="boost-row" for="boost"><div><strong>ϟ Boost</strong><small id="boostHint">Use the fastest configured profile for this model.</small></div><input id="boost" type="checkbox" role="switch" aria-label="Boost video speed" disabled></label>

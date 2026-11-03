@@ -7,18 +7,37 @@ import {presets,dimensionsFor,stepsForMode} from './video-presets.js';
 const $=id=>document.getElementById(id);
 const providerLabels={default:'GPU',gcp:'Google Cloud',vast:'Vast.ai'};
 function rememberedProvider(){try{const value=localStorage.getItem('joshbox-provider');return Object.hasOwn(providerLabels,value)?value:'default';}catch{return 'default';}}
-const state={preset:presets[0],provider:rememberedProvider(),mode:'quality',capabilities:null,busy:false,unresolved:false,file:null,imageUrl:null,extension:null,current:null,jobs:[],requestId:null,pollTimer:null,logs:[]};
+const state={preset:presets[0],provider:rememberedProvider(),mode:'quality',workflowId:'default',loraId:'',instanceBusy:false,instanceStatus:null,capabilities:null,busy:false,unresolved:false,file:null,imageUrl:null,extension:null,current:null,jobs:[],requestId:null,pollTimer:null,logs:[]};
 $('provider').value=state.provider;
 function notice(text,error=false){const box=$(error?'error':'notice');box.textContent=text;box.hidden=!text;}
 function log(message){state.logs.push('['+new Date().toLocaleTimeString()+'] '+message);state.logs=state.logs.slice(-150);$('executionLog').textContent=state.logs.join('\n');}
 async function api(url,options={}){const response=await fetch(url,{...options,cache:'no-store'});let value;try{value=await response.json();}catch{throw new Error('Sign in again or check your connection.');}if(!response.ok)throw new Error(value.error||value.detail||'The request failed.');return value;}
-function profile(mode=state.mode){return state.capabilities?.profiles?.[state.preset.model]?.[mode];}
+function selectedWorkflow(mode=state.mode){return state.capabilities?.workflows?.find(w=>w.id===state.workflowId&&w.model===state.preset.model&&w.mode===mode);}
+function profile(mode=state.mode){return (mode===state.mode?selectedWorkflow(mode):null)||state.capabilities?.profiles?.[state.preset.model]?.[mode];}
+function renderCreativeOptions(){
+  const options=(state.capabilities?.workflows||[]).filter(w=>w.model===state.preset.model&&w.mode===state.mode);
+  if(!options.some(w=>w.id===state.workflowId)){state.workflowId='default';state.loraId='';}
+  const selector=$('workflowPicker');selector.replaceChildren();
+  for(const w of options){const option=document.createElement('option');option.value=w.id;option.textContent=w.name+(w.ready?'':' · Setup needed');selector.append(option);}
+  if(!options.length){const option=document.createElement('option');option.value='default';option.textContent='Default workflow';selector.append(option);}
+  selector.value=state.workflowId;selector.disabled=state.busy||!state.capabilities?.connected||options.length<2;
+  const selected=options.find(w=>w.id===state.workflowId),loras=selected?.loras||[];
+  if(!loras.some(l=>l.id===state.loraId))state.loraId='';
+  $('loraPicker').replaceChildren();
+  const blank=document.createElement('option');blank.value='';blank.textContent=loras.length?'Choose compatible LoRA':'No LoRA override';$('loraPicker').append(blank);
+  for(const item of loras){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;$('loraPicker').append(option);}
+  $('loraPicker').value=state.loraId;$('loraPicker').disabled=state.busy||!loras.length;
+  $('loraStrength').disabled=state.busy||!state.loraId;
+  $('workflowHint').textContent=!state.capabilities?.connected?'Connect a GPU to discover installed workflows and LoRAs.':!selected?.ready?'This workflow needs setup or installed model files.':loras.length?'Pick a registered LoRA and adjust its strength. The workflow must include a supported loader slot.':'This workflow has no adjustable LoRA slot; its built-in LoRAs remain unchanged.';
+}
 function applyCapabilities(){
+  renderCreativeOptions();
   const info=profile(),controls=info?.controls||[];
+  const loraRequired=!!selectedWorkflow()?.loras?.length&&!state.loraId;
   for(const key of ['fps','steps'])if(Number.isFinite(info?.fixed?.[key])){$(key).value=info.fixed[key];$(key+'Slider').value=info.fixed[key];}
   const connected=!!state.capabilities?.connected;
   $('provider').disabled=state.busy||state.unresolved;
-  $('generate').disabled=state.busy||state.unresolved||!connected||!info?.ready;
+  $('generate').disabled=state.busy||state.unresolved||!connected||!info?.ready||loraRequired;
   $('fastMode').disabled=state.busy||(connected&&!profile('fast')?.ready);
   $('qualityMode').disabled=state.busy||(connected&&!profile('quality')?.ready);
   $('boost').disabled=state.busy||!connected||!profile('fast')?.ready;
@@ -38,7 +57,7 @@ function applyCapabilities(){
   $('randomSeed').disabled=state.busy||(connected&&!controls.includes('seed'));$('adultOnly').disabled=state.busy;
   $('generateLabel').textContent=state.busy?'Rendering…':state.unresolved?'Check existing generation':'Generate Video';
   $('renderSpinner').hidden=!state.busy;
-  $('generationHint').textContent=state.unresolved?'Refresh the existing job before generating again.':!connected?'Connect the GPU proxy to generate. No instance is started by this app.':!info?.ready?'This setup needs an exported workflow on your GPU.':'Keep the GPU running until your video is saved to the gallery.';
+  $('generationHint').textContent=loraRequired?'Select an installed LoRA for this workflow.':state.unresolved?'Refresh the existing job before generating again.':!connected?'Connect the GPU proxy to generate. No instance is started by this app.':!info?.ready?'This setup needs an exported workflow on your GPU.':'Keep the GPU running until your video is saved to the gallery.';
   $('selectedModel').textContent=state.preset.name.replace(/^[ϟ✦] /,'');
   $('qualityMode').classList.toggle('selected',state.mode==='quality');$('qualityMode').setAttribute('aria-pressed',String(state.mode==='quality'));
   $('fastMode').classList.toggle('selected',state.mode==='fast');$('fastMode').setAttribute('aria-pressed',String(state.mode==='fast'));
@@ -50,7 +69,7 @@ function applyCapabilities(){
   for(const button of document.querySelectorAll('[data-seconds]'))button.disabled=state.busy||(connected&&!controls.includes('frames'));
 }
 function renderPicks(){
-  $('quickPicks').replaceChildren(...presets.map(p=>{const button=document.createElement('button');button.type='button';button.className='quick-pick'+(state.preset.id===p.id?' selected':'');button.setAttribute('aria-pressed',String(state.preset.id===p.id));button.disabled=state.busy;const title=document.createElement('strong');title.textContent=p.name;const detail=document.createElement('small');detail.textContent=p.detail;const badge=document.createElement('span');const available=state.capabilities?.profiles?.[p.model]?.[p.mode]?.ready;badge.className='preset-state'+(available?' available':'');badge.textContent=available?'WORKFLOW CONFIGURED':'SETUP NEEDED';button.append(title,detail,badge);button.addEventListener('click',()=>{state.preset=p;state.mode=p.mode;$('boost').checked=false;for(const id of ['frames','fps','steps']){$(id).value=p[id];$(id+'Slider').value=p[id];}applyCapabilities();notice(available?'Preset loaded. Review your image and prompt.':'Draft preset loaded. This model is not connected; no installation or generation was started.');});return button;}));
+  $('quickPicks').replaceChildren(...presets.map(p=>{const button=document.createElement('button');button.type='button';button.className='quick-pick'+(state.preset.id===p.id?' selected':'');button.setAttribute('aria-pressed',String(state.preset.id===p.id));button.disabled=state.busy;const title=document.createElement('strong');title.textContent=p.name;const detail=document.createElement('small');detail.textContent=p.detail;const badge=document.createElement('span');const available=state.capabilities?.profiles?.[p.model]?.[p.mode]?.ready;badge.className='preset-state'+(available?' available':'');badge.textContent=available?'WORKFLOW CONFIGURED':'SETUP NEEDED';button.append(title,detail,badge);button.addEventListener('click',()=>{state.preset=p;state.mode=p.mode;state.workflowId='default';state.loraId='';$('boost').checked=false;for(const id of ['frames','fps','steps']){$(id).value=p[id];$(id+'Slider').value=p[id];}applyCapabilities();notice(available?'Preset loaded. Review your image and prompt.':'Draft preset loaded. This model is not connected; no installation or generation was started.');});return button;}));
 }
 function updateSuggestions(){const prompt=$('positivePrompt').value;$('promptCount').textContent=prompt.length+' / 3000';const choices=prompt?suggestedPrompts(prompt,'video'):['Slow camera push','Gentle natural movement','Pan across the scene'];$('suggestions').replaceChildren(...choices.map(text=>{const button=document.createElement('button');button.type='button';button.textContent=text;button.disabled=state.busy||appendSuggestion(prompt,text).length>3000;button.onclick=()=>{$('positivePrompt').value=appendSuggestion($('positivePrompt').value,text);updateSuggestions();};return button;}));}
 const builderFields=['Subject','Action','Setting','Camera','Lighting','Style','Pace','Details'];
@@ -106,7 +125,7 @@ async function generate(event){
   if(!$('adultOnly').checked){notice('Confirm that any people are fictional adults.',true);return;}
   const dimensions=dimensionsFor(state.preset.model,$('aspectRatio').value);
   const seed=$('randomSeed').checked?crypto.getRandomValues(new Uint32Array(1))[0]%2147483648:Number($('seed').value);$('seed').value=String(seed);
-  const settings={request_id:state.requestId||crypto.randomUUID(),provider:state.provider,model:state.preset.model,mode:state.mode,prompt:$('positivePrompt').value.trim(),negative:$('negativePrompt').value,width:dimensions[0],height:dimensions[1],frames:Number($('frames').value),fps:Number($('fps').value),steps:Number($('steps').value),motion_bucket:Number($('motionBucket').value),motion_scale:Number($('motionScale').value),seed,extend_job_id:state.extension?.job.id,extend_index:state.extension?.index};
+  const settings={request_id:state.requestId||crypto.randomUUID(),provider:state.provider,workflow_id:state.workflowId,lora_id:state.loraId,lora_strength:Number($('loraStrength').value),model:state.preset.model,mode:state.mode,prompt:$('positivePrompt').value.trim(),negative:$('negativePrompt').value,width:dimensions[0],height:dimensions[1],frames:Number($('frames').value),fps:Number($('fps').value),steps:Number($('steps').value),motion_bucket:Number($('motionBucket').value),motion_scale:Number($('motionScale').value),seed,extend_job_id:state.extension?.job.id,extend_index:state.extension?.index};
   for(const [id,min,max] of [['frames',1,362],['fps',1,60],['steps',1,100],['motion_bucket',0,255],['motion_scale',0,10],['seed',0,2147483647]])if(!Number.isFinite(settings[id])||settings[id]<min||settings[id]>max||(id!=='motion_scale'&&!Number.isInteger(settings[id]))){notice('Check the '+id.replace('_',' ')+' value.',true);return;}
   state.requestId=settings.request_id;state.busy=true;if(innerWidth<1024)document.querySelector('.monitor').scrollIntoView({behavior:'smooth',block:'start'});applyCapabilities();updateSuggestions();log('Sending the image and settings to your GPU proxy.');$('activeNode').textContent='Preparing the workflow';$('progressTrack').classList.add('indeterminate');
   const form=new FormData();form.append('settings',JSON.stringify(settings));form.append('image',state.file);
@@ -151,21 +170,63 @@ $('sourceImage').addEventListener('change',()=>{try{if($('sourceImage').files[0]
 $('removeImage').onclick=()=>{if(state.imageUrl)URL.revokeObjectURL(state.imageUrl);state.file=null;state.extension=null;state.imageUrl=null;$('imagePreview').hidden=true;$('uploadCopy').hidden=false;$('removeImage').hidden=true;$('extensionNote').hidden=true;$('sourceImage').value='';};
 for(const type of ['dragenter','dragover'])$('uploadZone').addEventListener(type,e=>{e.preventDefault();if(!state.busy)$('uploadZone').classList.add('dragging');});
 for(const type of ['dragleave','drop'])$('uploadZone').addEventListener(type,e=>{e.preventDefault();$('uploadZone').classList.remove('dragging');if(type==='drop'&&!state.busy)try{setImage(e.dataTransfer.files[0]);}catch(error){notice(error.message,true);}});
-$('qualityMode').onclick=()=>{state.mode='quality';$('boost').checked=false;$('steps').value=stepsForMode(state.preset,state.mode);$('stepsSlider').value=$('steps').value;applyCapabilities();};
-$('fastMode').onclick=()=>{state.mode='fast';$('boost').checked=false;$('steps').value=state.preset.fastSteps;$('stepsSlider').value=$('steps').value;applyCapabilities();};
-$('boost').onchange=()=>{state.mode=$('boost').checked?'fast':profile('quality')?.ready?'quality':'fast';$('steps').value=stepsForMode(state.preset,state.mode);$('stepsSlider').value=$('steps').value;applyCapabilities();};
+$('qualityMode').onclick=()=>{state.workflowId='default';state.loraId='';state.mode='quality';$('boost').checked=false;$('steps').value=stepsForMode(state.preset,state.mode);$('stepsSlider').value=$('steps').value;applyCapabilities();};
+$('fastMode').onclick=()=>{state.workflowId='default';state.loraId='';state.mode='fast';$('boost').checked=false;$('steps').value=state.preset.fastSteps;$('stepsSlider').value=$('steps').value;applyCapabilities();};
+$('boost').onchange=()=>{state.workflowId='default';state.loraId='';state.mode=$('boost').checked?'fast':profile('quality')?.ready?'quality':'fast';$('steps').value=stepsForMode(state.preset,state.mode);$('stepsSlider').value=$('steps').value;applyCapabilities();};
 $('randomSeed').onchange=applyCapabilities;$('generationForm').addEventListener('submit',generate);
 $('loopVideo').onchange=()=>{$('videoPlayer').loop=$('loopVideo').checked;};
 $('fullscreen').onclick=()=>{$('videoPlayer').requestFullscreen?.().catch(()=>notice('Fullscreen is unavailable on this device. Use the player controls.'));};
 $('extend').onclick=()=>void extendCurrent();$('checkConnection').onclick=()=>void checkConnection();$('refreshGallery').onclick=()=>void refreshGallery();
 $('provider').addEventListener('change',()=>{
   if(state.busy||state.unresolved){$('provider').value=state.provider;return;}
-  state.provider=$('provider').value;
+  state.provider=$('provider').value;state.workflowId='default';state.loraId='';state.instanceStatus=null;
   try{localStorage.setItem('joshbox-provider',state.provider);}catch{}
-  state.capabilities=null;applyCapabilities();void checkConnection();
+  state.capabilities=null;applyCapabilities();void checkConnection();void checkInstance();
 });
 window.addEventListener('online',()=>{if(!document.hidden){void checkConnection();if(state.requestId)void monitor(state.requestId);}});
 window.addEventListener('offline',()=>notice('Your phone is offline. Existing jobs are not resubmitted. Reconnect to check their status.',true));
 $('chooseGallery').onclick=()=>{$('imagePicker').showModal();};$('closePicker').onclick=()=>{$('imagePicker').close();};
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.requestId&&!state.busy)void monitor(state.requestId);});
-updateSuggestions();applyCapabilities();void checkConnection();void refreshGallery();
+$('workflowPicker').addEventListener('change',()=>{state.workflowId=$('workflowPicker').value;state.loraId='';applyCapabilities();});
+$('loraPicker').addEventListener('change',()=>{state.loraId=$('loraPicker').value;applyCapabilities();});
+$('loraStrength').addEventListener('input',()=>{$('loraStrengthLabel').textContent=Number($('loraStrength').value).toFixed(2);});
+function instanceControls(status=null){
+  const manage=state.provider==='gcp'||state.provider==='vast';
+  $('refreshInstance').disabled=state.instanceBusy||!manage;
+  $('startInstance').disabled=state.instanceBusy||!manage||!status?.configured||!['TERMINATED','stopped'].includes(status.status);
+  $('stopInstance').disabled=state.instanceBusy||!manage||!['RUNNING','running'].includes(status?.status);
+}
+async function checkInstance(){
+  const provider=state.provider;
+  if(provider==='default'){$('instanceStatus').textContent='Select a managed GPU';$('instanceDescription').textContent='Select Google Cloud or Vast.ai to manage an existing instance.';state.instanceStatus=null;instanceControls();return;}
+  $('instanceStatus').textContent='Checking '+providerLabels[provider]+'…';instanceControls();
+  try{
+    const result=await api('/api/instances?provider='+encodeURIComponent(provider));
+    if(provider!==state.provider)return;
+    state.instanceStatus=result;
+    $('instanceStatus').textContent=result.configured?result.status:'Not configured';
+    $('instanceDescription').textContent=result.configured?result.name+' · '+providerLabels[provider]:'Add this instance’s ID and private API credentials in the JoshBox server configuration.';
+    $('instanceCost').textContent=result.hourlyUsd!=null?'Reported compute rate: USD '+result.hourlyUsd.toFixed(3)+'/hr. Storage charges may continue while stopped.':'Starting an instance may incur charges. Stopped instances can still incur storage costs.';
+    instanceControls(result);
+  }catch(e){
+    if(provider!==state.provider)return;
+    $('instanceStatus').textContent='Status unavailable';$('instanceDescription').textContent=e.message;state.instanceStatus=null;instanceControls();
+  }
+}
+async function changeInstance(action){
+  const provider=state.provider,status=state.instanceStatus;
+  if(state.instanceBusy||!status?.configured)return;
+  const label=providerLabels[provider];
+  if(!window.confirm((action==='start'?'Start ':'Stop ')+label+' instance “'+status.name+'”? '+(action==='start'?'GPU usage charges may begin.':'Only do this after your video is safely archived. Storage charges may continue.')))return;
+  state.instanceBusy=true;instanceControls();
+  try{
+    const result=await api('/api/instances',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,action,confirm:provider+':'+action})});
+    notice(result.message);await checkInstance();
+  }catch(e){notice(e.message,true);}
+  finally{state.instanceBusy=false;instanceControls(state.instanceStatus);}
+}
+$('refreshInstance').onclick=()=>void checkInstance();
+$('startInstance').onclick=()=>void changeInstance('start');
+$('stopInstance').onclick=()=>void changeInstance('stop');
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){void checkInstance();if(state.requestId&&!state.busy)void monitor(state.requestId);}});
+
+updateSuggestions();applyCapabilities();void checkConnection();void checkInstance();void refreshGallery();
