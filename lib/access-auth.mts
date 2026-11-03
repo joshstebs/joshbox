@@ -2,7 +2,7 @@
 import {createRemoteJWKSet,jwtVerify,type JWTVerifyGetKey} from 'jose';
 type Settings={CF_ACCESS_TEAM_DOMAIN?:string;CF_ACCESS_AUD?:string;JOSHBOX_OWNER_EMAIL?:string;JOSHBOX_OWNER_ID?:string};
 const keys=new Map<string,JWTVerifyGetKey>();
-export async function accessIdentity(token:string|null,settings:Settings=process.env){
+export async function accessIdentity(token:string|null,settings:Settings=process.env as Settings){
   if(!token||token.length>16000||!settings.CF_ACCESS_TEAM_DOMAIN||!settings.CF_ACCESS_AUD||!settings.JOSHBOX_OWNER_EMAIL)return null;
   try{
     const issuer=new URL(settings.CF_ACCESS_TEAM_DOMAIN);
